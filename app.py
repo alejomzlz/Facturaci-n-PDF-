@@ -39,8 +39,7 @@ def importar_datos_pdf(file):
         cliente_match = re.search(r"CLIENTE:\s*(.*)", text)
         cliente = cliente_match.group(1).strip() if cliente_match else "Cliente Recuperado"
         
-        # Buscamos filas: Pág, Nombre, Cant, $, $, $, $, $
-        # Esta expresión captura: Pág(1) Nombre(2) Cant(3) Cat_U(4) y List_U(5)
+        # Patron para capturar: Pág, Nombre, Cant, Precio Cat, Total Cat, Precio List...
         patron = r"(\d+)\s+(.*?)\s+(\d+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)"
         matches = re.findall(patron, text)
         
@@ -116,7 +115,6 @@ for idx, tab in enumerate(tabs):
         with c2:
             fec_p = st.date_input("Fecha de pago", date.today(), key=f"d_{fid}")
 
-        # TABLA EN EL SISTEMA (SIN COLORES PARA EDICIÓN LIMPIA)
         indices_a_borrar = []
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 3, 0.8, 1.5, 1.5, 1.5, 1.5, 1.5, 0.5])
@@ -171,4 +169,48 @@ for idx, tab in enumerate(tabs):
 
                 # Encabezados PDF
                 pdf.set_fill_color(40, 40, 40)
-                pdf.set_text_color(255, 255,
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font("Arial", 'B', 8)
+                w_col = [10, 55, 10, 23, 23, 23, 23, 23]
+                headers = ["Pág", "Producto", "Cant", "U. Cat", "T. Cat", "U. List", "T. List", "Gan."]
+                for i in range(len(headers)): pdf.cell(w_col[i], 10, headers[i], 1, 0, 'C', True)
+                pdf.ln()
+
+                # Filas con Colores (SOLO EN EL PDF)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("Arial", '', 8)
+                for _, r in df_v.iterrows():
+                    # Cálculo de alto para multi_cell
+                    texto_prod = str(r['Prod'])
+                    ancho_prod = 55
+                    lineas = (pdf.get_string_width(texto_prod) // ancho_prod) + 1
+                    alto_celda = max(8, lineas * 5)
+                    
+                    curr_x, curr_y = pdf.get_x(), pdf.get_y()
+                    
+                    pdf.cell(10, alto_celda, str(r['Pag']), 1, 0, 'C')
+                    pdf.multi_cell(ancho_prod, 5 if lineas > 1 else alto_celda, texto_prod, 1, 'L')
+                    
+                    pdf.set_xy(curr_x + 65, curr_y)
+                    pdf.cell(10, alto_celda, str(r['Cant']), 1, 0, 'C')
+                    pdf.cell(23, alto_celda, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                    
+                    pdf.set_fill_color(225, 245, 254) # Azul
+                    pdf.cell(23, alto_celda, f"${fmt(r['TC'])}", 1, 0, 'R', True)
+                    
+                    pdf.cell(23, alto_celda, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                    
+                    pdf.set_fill_color(255, 243, 224) # Naranja
+                    pdf.cell(23, alto_celda, f"${fmt(r['TL'])}", 1, 0, 'R', True)
+                    
+                    pdf.set_fill_color(232, 245, 233) # Verde
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(23, alto_celda, f"${fmt(r['TG'])}", 1, 1, 'R', True)
+                    pdf.set_font("Arial", '', 8)
+
+                # Totales Finales
+                pdf.set_fill_color(240, 240, 240)
+                pdf.set_font("Arial", 'B', 9)
+                pdf.cell(75, 12, "TOTALES FINALES", 1, 0, 'R', True)
+                pdf.cell(33, 12, "", 1, 0, '', True)
+                pdf.cell(23, 12, f
