@@ -6,207 +6,177 @@ import io
 import re
 from pypdf import PdfReader
 
-# Configuración de página
-st.set_page_config(page_title="Sistema Pro Facturación", layout="wide")
+st.set_page_config(page_title="Facturación Pro", layout="wide")
 
-# Función para formatear unidades de mil sin decimales
 def fmt(valor):
     try:
         return f"{int(valor):,}".replace(",", ".")
     except:
         return "0"
 
-# --- FUNCIÓN PARA RECUPERAR DATOS DEL PDF ---
-def extraer_datos_completos_pdf(file):
-    reader = PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    
-    # Extraer Cliente, Fecha y Pago
-    cliente_match = re.search(r"CLIENTE:\s*(.*)", text)
-    fecha_match = re.search(r"FECHA:\s*(\d{4}-\d{2}-\d{2})", text)
-    pago_match = re.search(r"Pagar a:\s*(.*)", text)
-    
-    # Intentar recuperar filas de la tabla (Basado en el formato que generamos)
-    # Buscamos patrones de líneas que empiecen por un número (Página)
-    lineas = text.split('\n')
-    productos_recuperados = []
-    
-    for linea in lineas:
-        # Regex para detectar: Pag, Producto (texto), Cant, y luego valores monetarios
-        parts = linea.split()
-        if len(parts) >= 5 and parts[0].isdigit():
-            try:
-                # Intento de reconstrucción simple
-                productos_recuperados.append({
-                    "Pag": parts[0],
-                    "Prod": " ".join(parts[1:-5]),
-                    "Cant": int(parts[-5]),
-                    "Cat_Unit": 0, # Los unitarios se recalculan manual al editar
-                    "List_Unit": 0
-                })
-            except:
-                continue
+# --- LÓGICA DE IMPORTACIÓN ---
+def extraer_datos_pdf(file):
+    try:
+        reader = PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text()
+        
+        cliente = re.search(r"CLIENTE:\s*(.*)", text)
+        fecha = re.search(r"FECHA:\s*(\d{4}-\d{2}-\d{2})", text)
+        
+        return {
+            "cliente": cliente.group(1).strip() if cliente else "Copia Editada",
+            "fecha": date.fromisoformat(fecha.group(1)) if fecha else date.today(),
+            "productos": [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
+        }
+    except:
+        return None
 
-    return {
-        "cliente": cliente_match.group(1).strip() if cliente_match else "Cliente Editado",
-        "fecha": date.fromisoformat(fecha_match.group(1)) if fecha_match else date.today(),
-        "pago": pago_match.group(1).strip() if pago_match else "",
-        "productos": productos_recuperados if productos_recuperados else [{"Pag": "", "Prod": "", "Cant": 1, "Cat_Unit": 0, "List_Unit": 0}]
-    }
+# --- ESTADO DE SESIÓN ---
+if 'facturas' not in st.session_state:
+    st.session_state.facturas = [{"id": 0, "name": "Nueva Factura"}]
+if 'datos' not in st.session_state:
+    st.session_state.datos = {}
 
-# --- ESTADO DE LA SESIÓN ---
-if 'lista_facturas' not in st.session_state:
-    st.session_state.lista_facturas = [{"id": 0, "cliente": "Nueva Factura"}]
-if 'datos_facturas' not in st.session_state:
-    st.session_state.datos_facturas = {}
-
-# --- BARRA LATERAL ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuración")
-    logo_revista = st.file_uploader("Logo Revista", type=["png", "jpg", "jpeg"])
-    nombre_revista = st.text_input("Nombre Revista", "Mi Revista")
+    logo_rev = st.file_uploader("Logo Revista (Opcional)", type=["png", "jpg", "jpeg"])
+    nombre_rev = st.text_input("Nombre Revista", "Mi Revista")
     
     st.divider()
     st.subheader("💳 Pago")
-    logo_pago = st.file_uploader("Logo Pago", type=["png", "jpg", "jpeg"])
+    logo_metodo = st.file_uploader("Logo Pago (Opcional)", type=["png", "jpg", "jpeg"])
     num_pago = st.text_input("Número de cuenta")
-    qr_pago = st.file_uploader("QR de pago", type=["png", "jpg", "jpeg"])
+    qr_img = st.file_uploader("QR (Opcional)", type=["png", "jpg", "jpeg"])
 
     st.divider()
-    st.subheader("🔄 Editar PDF Existente")
-    archivo_importar = st.file_uploader("Sube factura para editar", type=["pdf"])
-    if archivo_importar:
-        if st.button("Cargar datos para corregir"):
-            d = extraer_datos_completos_pdf(archivo_importar)
-            n_id = len(st.session_state.lista_facturas)
-            st.session_state.lista_facturas.append({"id": n_id, "cliente": d["cliente"]})
-            st.session_state.datos_facturas[f"p_{n_id}"] = d["productos"]
-            st.success("Cargado en nueva pestaña")
+    archivo_in = st.file_uploader("🔄 Editar PDF anterior", type=["pdf"])
+    if archivo_in and st.button("Cargar para editar"):
+        res = extraer_datos_pdf(archivo_in)
+        if res:
+            new_id = len(st.session_state.facturas)
+            st.session_state.facturas.append({"id": new_id, "name": res["cliente"]})
+            st.session_state.datos[f"f_{new_id}"] = res["productos"]
+            st.rerun()
 
-# --- CUERPO ---
-st.title("📑 Facturación Automática")
+# --- MAIN ---
+st.title("📑 Sistema de Facturación")
 
-if st.button("➕ Crear Nueva Factura"):
-    n_id = len(st.session_state.lista_facturas)
-    st.session_state.lista_facturas.append({"id": n_id, "cliente": f"Factura {n_id+1}"})
+if st.button("➕ Nueva Factura"):
+    nid = len(st.session_state.facturas)
+    st.session_state.facturas.append({"id": nid, "name": f"Factura {nid+1}"})
     st.rerun()
 
-tabs = st.tabs([f["cliente"] for f in st.session_state.lista_facturas])
+tabs = st.tabs([f["name"] for f in st.session_state.facturas])
 
 for idx, tab in enumerate(tabs):
     with tab:
-        f_id = st.session_state.lista_facturas[idx]["id"]
-        col_1, col_2 = st.columns(2)
+        fid = st.session_state.facturas[idx]["id"]
+        c1, c2 = st.columns(2)
         
-        with col_1:
-            nom = st.text_input("Cliente", key=f"cli_{f_id}")
-            if nom: st.session_state.lista_facturas[idx]["cliente"] = nom
-        with col_2:
-            fec = st.date_input("Fecha Pago", date.today(), key=f"dt_{f_id}")
+        with c1:
+            nom_cli = st.text_input("Cliente", key=f"n_{fid}")
+            if nom_cli: st.session_state.facturas[idx]["name"] = nom_cli
+        with c2:
+            fec_p = st.date_input("Fecha", date.today(), key=f"d_{fid}")
 
-        k_data = f"p_{f_id}"
-        if k_data not in st.session_state.datos_facturas:
-            st.session_state.datos_facturas[k_data] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_Unit": 0, "List_Unit": 0}]
+        key_f = f"f_{fid}"
+        if key_f not in st.session_state.datos:
+            st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
 
-        # TABLA DE PRODUCTOS
-        for i, fila in enumerate(st.session_state.datos_facturas[k_data]):
-            c = st.columns([1, 3, 1, 2, 2, 2, 2, 2])
-            fila['Pag'] = c[0].text_input("Pág", value=fila['Pag'], key=f"pg_{f_id}_{i}")
-            fila['Prod'] = c[1].text_input("Producto", value=fila['Prod'], key=f"pr_{f_id}_{i}")
-            fila['Cant'] = c[2].number_input("Cant", value=fila['Cant'], min_value=1, key=f"ct_{f_id}_{i}")
-            fila['Cat_Unit'] = c[3].number_input("P. Unit Cat", value=fila['Cat_Unit'], key=f"puc_{f_id}_{i}")
+        # TABLA DE EDICIÓN
+        for i, fila in enumerate(st.session_state.datos[key_f]):
+            cols = st.columns([1, 3, 1, 2, 2, 2, 2, 2])
+            fila['Pag'] = cols[0].text_input("Pág", value=fila['Pag'], key=f"pg_{fid}_{i}")
+            fila['Prod'] = cols[1].text_input("Producto", value=fila['Prod'], key=f"pr_{fid}_{i}")
+            fila['Cant'] = cols[2].number_input("Cant", value=fila['Cant'], min_value=1, key=f"ct_{fid}_{i}")
+            fila['Cat_U'] = cols[3].number_input("Unit. Cat", value=fila['Cat_U'], key=f"uc_{fid}_{i}")
             
-            # Cálculos en tiempo real para visualización
-            t_cat_fila = fila['Cant'] * fila['Cat_Unit']
-            c[4].write("**Total Cat**")
-            c[4].info(fmt(t_cat_fila))
+            t_cat = fila['Cant'] * fila['Cat_U']
+            cols[4].write("Total Cat")
+            cols[4].info(fmt(t_cat))
             
-            fila['List_Unit'] = c[5].number_input("P. Unit List", value=fila['List_Unit'], key=f"pul_{f_id}_{i}")
+            fila['List_U'] = cols[5].number_input("Unit. List", value=fila['List_U'], key=f"ul_{fid}_{i}")
+            t_list = fila['Cant'] * fila['List_U']
+            cols[6].write("Total List")
+            cols[6].info(fmt(t_list))
             
-            t_list_fila = fila['Cant'] * fila['List_Unit']
-            c[6].write("**Total List**")
-            c[6].info(fmt(t_list_fila))
-            
-            gan_fila = t_cat_fila - t_list_fila
-            c[7].write("**Ganancia**")
-            c[7].success(fmt(gan_fila))
+            gan = t_cat - t_list
+            cols[7].write("Ganancia")
+            cols[7].success(fmt(gan))
 
-        if st.button("➕ Añadir Producto", key=f"btn_a_{f_id}"):
-            st.session_state.datos_facturas[k_data].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_Unit": 0, "List_Unit": 0})
+        if st.button("➕ Añadir Fila", key=f"add_{fid}"):
+            st.session_state.datos[key_f].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0})
             st.rerun()
 
-        # Resumen final
-        df = pd.DataFrame(st.session_state.datos_facturas[k_data])
-        df['TCat'] = df['Cant'] * df['Cat_Unit']
-        df['TList'] = df['Cant'] * df['List_Unit']
-        df['TGan'] = df['TCat'] - df['TList']
-        
-        st.divider()
-        st.subheader(f"Total Factura: $ {fmt(df['TCat'].sum())}")
+        df_f = pd.DataFrame(st.session_state.datos[key_f])
+        df_f['TC'] = df_f['Cant'] * df_f['Cat_U']
+        df_f['TL'] = df_f['Cant'] * df_f['List_U']
+        df_f['TG'] = df_f['TC'] - df_f['TL']
 
-        # GENERAR PDF
-        if st.button("🚀 Exportar a PDF", key=f"pdf_btn_{f_id}"):
+        st.divider()
+        st.subheader(f"Total Factura: $ {fmt(df_f['TC'].sum())}")
+
+        if st.button("🚀 Exportar a PDF", key=f"btn_pdf_{fid}"):
             pdf = FPDF()
             pdf.add_page()
             
-            # Arreglo del error de imagen: se usa BytesIO y se especifica formato
-            if logo_revista:
-                ext = logo_revista.name.split('.')[-1].upper()
-                pdf.image(io.BytesIO(logo_revista.getvalue()), 10, 8, 30, type=ext)
+            # Manejo seguro de imágenes opcionales
+            if logo_rev:
+                try:
+                    pdf.image(io.BytesIO(logo_rev.getvalue()), 10, 8, 30)
+                except: pass
             
             pdf.set_font("Arial", 'B', 16)
-            pdf.cell(200, 10, txt=nombre_revista.upper(), ln=True, align='C')
+            pdf.cell(200, 10, txt=nombre_rev.upper(), ln=1, align='C')
             pdf.set_font("Arial", size=10)
-            pdf.cell(200, 10, f"CLIENTE: {nom} | FECHA: {fec}", ln=True, align='C')
+            pdf.cell(200, 10, f"CLIENTE: {nom_cli} | FECHA: {fec_p}", ln=1, align='C')
             pdf.ln(5)
 
-            # Encabezados (ajustados a las nuevas columnas)
+            # Encabezados
             pdf.set_fill_color(230, 230, 230)
             pdf.set_font("Arial", 'B', 7)
-            pdf.cell(8, 8, "Pág", 1, 0, 'C', True)
-            pdf.cell(50, 8, "Producto", 1, 0, 'C', True)
-            pdf.cell(10, 8, "Cant", 1, 0, 'C', True)
-            pdf.cell(28, 8, "U. Catál.", 1, 0, 'C', True)
-            pdf.cell(28, 8, "T. Catál.", 1, 0, 'C', True)
-            pdf.cell(23, 8, "U. Lista", 1, 0, 'C', True)
-            pdf.cell(23, 8, "T. Lista", 1, 0, 'C', True)
-            pdf.cell(22, 8, "Ganancia", 1, 1, 'C', True)
+            # Reorganización: Pag, Producto, Cant, Unit Cat, Total Cat, Unit List, Total List, Ganancia
+            headers = [("Pág", 8), ("Producto", 50), ("Cant", 10), ("U. Cat", 25), ("T. Cat", 25), ("U. List", 23), ("T. List", 23), ("Gan.", 22)]
+            for h, w in headers:
+                pdf.cell(w, 8, h, 1, 0, 'C', True)
+            pdf.ln()
 
             pdf.set_font("Arial", size=7)
-            for _, r in df.iterrows():
+            for _, r in df_f.iterrows():
                 pdf.cell(8, 8, str(r['Pag']), 1)
                 pdf.cell(50, 8, str(r['Prod']), 1)
-                pdf.cell(10, 8, str(r['Cant']), 1, 'C')
-                pdf.cell(28, 8, f"${fmt(r['Cat_Unit'])}", 1)
-                pdf.cell(28, 8, f"${fmt(r['TCat'])}", 1)
-                pdf.cell(23, 8, f"${fmt(r['List_Unit'])}", 1)
-                pdf.cell(23, 8, f"${fmt(r['TList'])}", 1)
-                pdf.cell(22, 8, f"${fmt(r['TGan'])}", 1, 1)
+                pdf.cell(10, 8, str(r['Cant']), 1, 0, 'C') # Corrección de TypeError aquí
+                pdf.cell(25, 8, f"${fmt(r['Cat_U'])}", 1)
+                pdf.cell(25, 8, f"${fmt(r['TC'])}", 1)
+                pdf.cell(23, 8, f"${fmt(r['List_U'])}", 1)
+                pdf.cell(23, 8, f"${fmt(r['TL'])}", 1)
+                pdf.cell(22, 8, f"${fmt(r['TG'])}", 1, 1)
 
-            # Fila de Totales
+            # Totales
             pdf.set_font("Arial", 'B', 8)
             pdf.cell(68, 10, "TOTALES", 1, 0, 'R', True)
-            pdf.cell(10, 10, "", 1, 0, '', True) # Espacio cant
-            pdf.cell(28, 10, "", 1, 0, '', True) # Espacio unit
-            pdf.cell(28, 10, f"${fmt(df['TCat'].sum())}", 1, 0, 'C', True)
-            pdf.cell(23, 10, "", 1, 0, '', True) # Espacio unit list
-            pdf.cell(23, 10, f"${fmt(df['TList'].sum())}", 1, 0, 'C', True)
-            pdf.cell(22, 10, f"${fmt(df['TGan'].sum())}", 1, 1, 'C', True)
+            pdf.cell(35, 10, "", 1, 0, '', True) # Espacio cant/unit
+            pdf.cell(25, 10, f"${fmt(df_f['TC'].sum())}", 1, 0, 'C', True)
+            pdf.cell(23, 10, "", 1, 0, '', True)
+            pdf.cell(23, 10, f"${fmt(df_f['TL'].sum())}", 1, 0, 'C', True)
+            pdf.cell(22, 10, f"${fmt(df_f['TG'].sum())}", 1, 1, 'C', True)
 
-            # Pie de página
+            # Pie de página opcional
             pdf.ln(5)
-            y_p = pdf.get_y()
-            if logo_pago:
-                ext_p = logo_pago.name.split('.')[-1].upper()
-                pdf.image(io.BytesIO(logo_pago.getvalue()), 10, y_p, 12, type=ext_p)
+            y_now = pdf.get_y()
+            if logo_metodo:
+                try: pdf.image(io.BytesIO(logo_metodo.getvalue()), 10, y_now, 12)
+                except: pass
             pdf.set_x(25)
             pdf.cell(100, 10, f"Pagar a: {num_pago}")
-            if qr_pago:
-                ext_q = qr_pago.name.split('.')[-1].upper()
-                pdf.image(io.BytesIO(qr_pago.getvalue()), 160, y_p - 5, 25, type=ext_q)
+            if qr_img:
+                try: pdf.image(io.BytesIO(qr_img.getvalue()), 160, y_now - 5, 25)
+                except: pass
 
-            out = pdf.output(dest='S').encode('latin-1')
-            st.download_button("⬇️ Bajar PDF", out, file_name=f"Factura_{nom}.pdf")
+            res_pdf = pdf.output(dest='S').encode('latin-1')
+            st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
+
 
