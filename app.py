@@ -36,7 +36,6 @@ def importar_datos_pdf(file):
             text += page.extract_text()
         cliente_match = re.search(r"CLIENTE:\s*(.*)", text)
         cliente = cliente_match.group(1).strip() if cliente_match else "Cliente Nuevo"
-        # Patrón para extraer filas: Pág, Producto, Cant, Precio Cat...
         patron = r"(\d+)\s+(.*?)\s+(\d+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)"
         matches = re.findall(patron, text)
         productos = []
@@ -55,7 +54,7 @@ if 'facturas' not in st.session_state:
 if 'datos' not in st.session_state:
     st.session_state.datos = {}
 
-# --- BARRA LATERAL (SIDEBAR) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Configuración")
     with st.expander("🖼️ Logos y Marca", expanded=False):
@@ -75,10 +74,10 @@ with st.sidebar:
             st.session_state.datos[f"f_{nid}"] = res["productos"]
             st.rerun()
 
-# --- PANEL PRINCIPAL ---
-st.title("📑 Facturación Inteligente")
+# --- MAIN ---
+st.title("📑 Facturación Profesional")
 
-if st.button("➕ Crear Nueva Factura"):
+if st.button("➕ Nueva Factura"):
     nid = len(st.session_state.facturas)
     st.session_state.facturas.append({"id": nid, "name": f"Factura {nid+1}"})
     st.rerun()
@@ -94,14 +93,13 @@ for idx, tab in enumerate(tabs):
 
         c1, c2 = st.columns(2)
         nom_cli = c1.text_input("Cliente", key=f"n_{fid}", value=st.session_state.facturas[idx]["name"] if st.session_state.facturas[idx]["name"] != "Nueva Factura" else "")
-        fec_p = c2.date_input("Fecha de pago", date.today(), key=f"d_{fid}")
+        fec_p = c2.date_input("Fecha", date.today(), key=f"d_{fid}")
         st.session_state.facturas[idx]["name"] = nom_cli if nom_cli else "Nueva Factura"
 
         indices_a_borrar = []
         s_tc, s_tl, s_tg = 0, 0, 0
 
-        # Etiquetas de columnas (más pequeñas)
-        st.markdown("<div style='font-size:0.8rem; color:gray; margin-bottom:5px;'>Pág | Producto | Cant | Unit. Cat | Total Cat | Unit. List | Total List | Ganancia</div>", unsafe_allow_html=True)
+        st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Unit Cat | Total Cat | Unit List | Total List | Ganancia</small>", unsafe_allow_html=True)
 
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
@@ -110,18 +108,17 @@ for idx, tab in enumerate(tabs):
             fila['Cant'] = cols[2].number_input("C", value=int(fila['Cant']), min_value=1, key=f"ct_{fid}_{i}", label_visibility="collapsed")
             fila['Cat_U'] = cols[3].number_input("UC", value=int(fila['Cat_U']), key=f"uc_{fid}_{i}", label_visibility="collapsed")
             
-            tc_val = fila['Cant'] * fila['Cat_U']
-            cols[4].markdown(f"<p style='font-size:0.9rem; margin-top:5px;'>${fmt(tc_val)}</p>", unsafe_allow_html=True)
+            tc = fila['Cant'] * fila['Cat_U']
+            cols[4].markdown(f"**${fmt(tc)}**")
             
             fila['List_U'] = cols[5].number_input("UL", value=int(fila['List_U']), key=f"ul_{fid}_{i}", label_visibility="collapsed")
-            tl_val = fila['Cant'] * fila['List_U']
-            cols[6].markdown(f"<p style='font-size:0.9rem; margin-top:5px;'>${fmt(tl_val)}</p>", unsafe_allow_html=True)
+            tl = fila['Cant'] * fila['List_U']
+            cols[6].markdown(f"**${fmt(tl)}**")
             
-            gan_val = tc_val - tl_val
-            cols[7].markdown(f"<p style='font-size:0.9rem; margin-top:5px; color:#2e7d32; font-weight:bold;'>${fmt(gan_val)}</p>", unsafe_allow_html=True)
+            gan = tc - tl
+            cols[7].markdown(f"<span style='color:#2e7d32; font-weight:bold;'>${fmt(gan)}</span>", unsafe_allow_html=True)
             
-            s_tc += tc_val; s_tl += tl_val; s_tg += gan_val
-            
+            s_tc += tc; s_tl += tl; s_tg += gan
             if cols[8].button("🗑️", key=f"del_{fid}_{i}"):
                 indices_a_borrar.append(i)
 
@@ -130,28 +127,26 @@ for idx, tab in enumerate(tabs):
                 st.session_state.datos[key_f].pop(index)
             st.rerun()
 
-        # BARRA DE TOTALES EN VIVO (SISTEMA)
+        # --- BARRA DE TOTALES CORREGIDA (VISIBILIDAD TOTAL) ---
         st.markdown(f"""
-            <div style="background-color:#f8f9fa; border:1px solid #dee2e6; padding:15px; border-radius:10px; margin:20px 0;">
-                <div style="display:flex; justify-content:space-around; align-items:center;">
-                    <div style="text-align:center;"><small>TOTAL CAT</small><br><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
-                    <div style="text-align:center;"><small>TOTAL LIST</small><br><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
-                    <div style="text-align:center; color:#1b5e20;"><small>GANANCIA TOTAL</small><br><strong style="font-size:1.4rem;">${fmt(s_tg)}</strong></div>
+            <div style="background-color:#ffffff; border:2px solid #e0e0e0; padding:15px; border-radius:10px; margin:20px 0; color:#000000;">
+                <div style="display:flex; justify-content:space-around; text-align:center;">
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL CAT</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL LIST</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#2e7d32;">GANANCIA TOTAL</p><strong style="font-size:1.5rem; color:#2e7d32;">${fmt(s_tg)}</strong></div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
 
-        col_bot = st.columns([1.5, 8.5])
-        if col_bot[0].button("➕ Agregar Fila", key=f"add_{fid}"):
+        if st.button("➕ Agregar Fila", key=f"add_{fid}"):
             st.session_state.datos[key_f].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0})
             st.rerun()
 
-        # GENERACIÓN DEL PDF
         df_pdf = pd.DataFrame(st.session_state.datos[key_f])
         df_pdf = df_pdf[df_pdf['Prod'].str.strip() != ""].copy()
 
         if not df_pdf.empty:
-            if st.button("🚀 GENERAR PDF PROFESIONAL", key=f"pdf_bt_{fid}"):
+            if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}"):
                 pdf = FPDF()
                 pdf.add_page()
                 if logo_rev: agregar_imagen_segura(pdf, logo_rev, 10, 10, 35)
@@ -161,39 +156,32 @@ for idx, tab in enumerate(tabs):
                 pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
                 pdf.ln(10)
 
-                # Encabezados
+                # Tabla PDF
                 pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 8)
-                cols_w = [10, 55, 10, 23, 23, 23, 23, 23]
+                cw = [10, 55, 10, 23, 23, 23, 23, 23]
                 h_txt = ["Pág", "Producto", "Cant", "U. Cat", "T. Cat", "U. List", "T. List", "Gan."]
-                for i in range(len(h_txt)): pdf.cell(cols_w[i], 10, h_txt[i], 1, 0, 'C', True)
+                for i in range(len(h_txt)): pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
                 pdf.ln()
 
-                # Filas con MultiCell alineado
                 pdf.set_font("Arial", '', 8)
                 for _, r in df_pdf.iterrows():
-                    l_nombre = (pdf.get_string_width(str(r['Prod'])) // 53) + 1
-                    h_fila = max(8, l_nombre * 5)
-                    x_pos, y_pos = pdf.get_x(), pdf.get_y()
-                    
-                    pdf.cell(10, h_fila, str(r['Pag']), 1, 0, 'C')
-                    pdf.multi_cell(55, 5 if l_nombre > 1 else h_fila, str(r['Prod']), 1, 'L')
-                    
-                    # RETORNO DE POSICIÓN PARA EVITAR DESFASES
-                    pdf.set_xy(x_pos + 65, y_pos)
-                    
-                    tc_row = r['Cant'] * r['Cat_U']
-                    tl_row = r['Cant'] * r['List_U']
-                    
-                    pdf.cell(10, h_fila, str(r['Cant']), 1, 0, 'C')
-                    pdf.cell(23, h_fila, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(225, 245, 254); pdf.cell(23, h_fila, f"${fmt(tc_row)}", 1, 0, 'R', True)
-                    pdf.cell(23, h_fila, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(255, 243, 224); pdf.cell(23, h_fila, f"${fmt(tl_row)}", 1, 0, 'R', True)
+                    l_n = (pdf.get_string_width(str(r['Prod'])) // 53) + 1
+                    h_f = max(8, l_n * 5)
+                    x, y = pdf.get_x(), pdf.get_y()
+                    pdf.cell(10, h_f, str(r['Pag']), 1, 0, 'C')
+                    pdf.multi_cell(55, 5 if l_n > 1 else h_f, str(r['Prod']), 1, 'L')
+                    pdf.set_xy(x + 65, y)
+                    v_tc, v_tl = r['Cant']*r['Cat_U'], r['Cant']*r['List_U']
+                    pdf.cell(10, h_f, str(r['Cant']), 1, 0, 'C')
+                    pdf.cell(23, h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                    pdf.set_fill_color(225, 245, 254); pdf.cell(23, h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                    pdf.cell(23, h_f, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                    pdf.set_fill_color(255, 243, 224); pdf.cell(23, h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
                     pdf.set_fill_color(232, 245, 233); pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(23, h_fila, f"${fmt(tc_row - tl_row)}", 1, 1, 'R', True)
+                    pdf.cell(23, h_f, f"${fmt(v_tc-v_tl)}", 1, 1, 'R', True)
                     pdf.set_font("Arial", '', 8)
 
-                # TOTALES FINALES PDF (FIXED ALIGNMENT)
+                # Totales Finales PDF alineados
                 pdf.set_fill_color(230, 230, 230); pdf.set_font("Arial", 'B', 9)
                 pdf.cell(75, 12, "TOTALES FINALES", 1, 0, 'R', True)
                 pdf.cell(33, 12, "", 1, 0, 'C', True)
@@ -202,13 +190,12 @@ for idx, tab in enumerate(tabs):
                 pdf.cell(23, 12, f"${fmt(s_tl)}", 1, 0, 'R', True)
                 pdf.cell(23, 12, f"${fmt(s_tg)}", 1, 1, 'R', True)
 
-                # Pie de página / Pago
-                pdf.ln(8)
-                y_pie = pdf.get_y()
-                if logo_pago: agregar_imagen_segura(pdf, logo_pago, 10, y_pie, 15)
-                pdf.set_xy(30, y_pie + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(0, 5, f"Pagar a: {num_pago}")
-                if qr_pago: agregar_imagen_segura(pdf, qr_pago, 160, y_pie, 28)
+                # Pie de página
+                pdf.ln(5)
+                y_p = pdf.get_y()
+                if logo_pago: agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
+                pdf.set_xy(30, y_p + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                if qr_pago: agregar_imagen_segura(pdf, qr_pago, 160, y_p, 25)
 
-                res_p = pdf.output(dest='S').encode('latin-1')
-                st.download_button("⬇️ Descargar Factura PDF", res_p, file_name=f"Factura_{nom_cli}.pdf")
-
+                res_pdf = pdf.output(dest='S').encode('latin-1')
+                st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
