@@ -28,27 +28,75 @@ def agregar_imagen_segura(pdf, uploaded_file, x, y, w):
         except:
             pass
 
+def importar_datos_pdf(file):
+    try:
+        reader = PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text()
+        
+        # Buscar Cliente
+        cliente_match = re.search(r"CLIENTE:\s*(.*)\s*\|", text)
+        cliente = cliente_match.group(1).strip() if cliente_match else "Cliente Importado"
+        
+        # Buscar Filas de productos (Pág, Prod, Cant, UC, TC, UL, TL, Gan)
+        # Este patrón es más flexible para capturar nombres de productos con espacios
+        patron = r"(\d+)\s+(.*?)\s+(\d+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)"
+        matches = re.findall(patron, text)
+        
+        productos = []
+        for m in matches:
+            productos.append({
+                "Pag": m[0], 
+                "Prod": m[1].strip(), 
+                "Cant": int(m[2]),
+                "Cat_U": int(m[3].replace('.', '')), 
+                "List_U": int(m[5].replace('.', ''))
+            })
+        return {"cliente": cliente, "productos": productos if productos else None}
+    except Exception as e:
+        st.error(f"Error al leer el PDF: {e}")
+        return None
+
 # --- ESTADO DE SESIÓN ---
 if 'facturas' not in st.session_state:
     st.session_state.facturas = [{"id": 0, "name": "Nueva Factura"}]
 if 'datos' not in st.session_state:
     st.session_state.datos = {}
 
-# --- SIDEBAR ---
+# --- SIDEBAR (BARRA LATERAL) ---
 with st.sidebar:
     st.header("⚙️ Configuración")
+    
     with st.expander("🖼️ Marca", expanded=False):
         logo_rev = st.file_uploader("Logo Revista", type=["png", "jpg", "jpeg"])
         nombre_rev = st.text_input("Nombre Revista", "MI REVISTA")
+        
     with st.expander("💳 Pago", expanded=False):
         num_pago = st.text_input("Cuenta / Nequi")
         logo_pago = st.file_uploader("Logo Pago", type=["png", "jpg", "jpeg"])
         qr_pago = st.file_uploader("QR Pago", type=["png", "jpg", "jpeg"])
+    
+    st.divider()
+    
+    # SECCIÓN RESTAURADA: IMPORTAR PDF
+    st.subheader("🔄 Re-editar")
+    archivo_pdf = st.file_uploader("Subir factura PDF anterior", type=["pdf"])
+    if archivo_pdf and st.button("📥 Cargar Datos del PDF"):
+        res = importar_datos_pdf(archivo_pdf)
+        if res and res["productos"]:
+            nid = len(st.session_state.facturas)
+            st.session_state.facturas.append({"id": nid, "name": res["cliente"]})
+            st.session_state.datos[f"f_{nid}"] = res["productos"]
+            st.success("¡Datos cargados en una nueva pestaña!")
+            st.rerun()
+        else:
+            st.warning("No se detectaron productos legibles en el PDF.")
 
 # --- PANEL PRINCIPAL ---
 st.title("📑 Facturación Profesional")
 
-if st.button("➕ Nueva Factura"):
+if st.button("➕ Crear Nueva Factura"):
     nid = len(st.session_state.facturas)
     st.session_state.facturas.append({"id": nid, "name": f"Factura {nid+1}"})
     st.rerun()
@@ -59,6 +107,8 @@ for idx, tab in enumerate(tabs):
     with tab:
         fid = st.session_state.facturas[idx]["id"]
         key_f = f"f_{fid}"
+        
+        # Inicializar datos si la pestaña es nueva
         if key_f not in st.session_state.datos:
             st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
 
@@ -69,11 +119,12 @@ for idx, tab in enumerate(tabs):
 
         s_tc, s_tl, s_tg = 0, 0, 0
         
-        # Tabla en Sistema
         st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Unit Cat | Total Cat | Unit List | Total List | Ganancia</small>", unsafe_allow_html=True)
 
+        # Renderizar filas
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
+            
             fila['Pag'] = cols[0].text_input("P", value=fila['Pag'], key=f"pg_{fid}_{i}", label_visibility="collapsed")
             fila['Prod'] = cols[1].text_input("Pr", value=fila['Prod'], key=f"pr_{fid}_{i}", label_visibility="collapsed")
             fila['Cant'] = cols[2].number_input("C", value=int(fila['Cant']), min_value=1, key=f"ct_{fid}_{i}", label_visibility="collapsed")
@@ -90,17 +141,18 @@ for idx, tab in enumerate(tabs):
             cols[7].markdown(f"<span style='color:#2e7d32; font-weight:bold;'>${fmt(gan)}</span>", unsafe_allow_html=True)
             
             s_tc += tc; s_tl += tl; s_tg += gan
+            
             if cols[8].button("🗑️", key=f"del_{fid}_{i}"):
                 st.session_state.datos[key_f].pop(i)
                 st.rerun()
 
-        # --- BARRA DE TOTALES (SISTEMA) - VISIBILIDAD MEJORADA ---
+        # BARRA DE TOTALES (SISTEMA)
         st.markdown(f"""
-            <div style="background-color:#ffffff; border:1px solid #cccccc; padding:15px; border-radius:10px; margin:20px 0;">
+            <div style="background-color:#ffffff; border:1px solid #cccccc; padding:15px; border-radius:10px; margin:20px 0; color:#000000;">
                 <div style="display:flex; justify-content:space-around; text-align:center;">
-                    <div style="color:#000000;"><p style="margin:0; font-size:0.8rem;">TOTAL CAT</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
-                    <div style="color:#000000;"><p style="margin:0; font-size:0.8rem;">TOTAL LIST</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
-                    <div style="color:#1b5e20;"><p style="margin:0; font-size:0.8rem;">GANANCIA TOTAL</p><strong style="font-size:1.5rem;">${fmt(s_tg)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL CAT</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL LIST</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#2e7d32;">GANANCIA TOTAL</p><strong style="font-size:1.5rem; color:#2e7d32;">${fmt(s_tg)}</strong></div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -109,7 +161,7 @@ for idx, tab in enumerate(tabs):
             st.session_state.datos[key_f].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0})
             st.rerun()
 
-        # --- GENERACIÓN DE PDF ---
+        # GENERACIÓN DE PDF
         df_pdf = pd.DataFrame(st.session_state.datos[key_f])
         df_pdf = df_pdf[df_pdf['Prod'].str.strip() != ""].copy()
 
@@ -124,17 +176,12 @@ for idx, tab in enumerate(tabs):
                 pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
                 pdf.ln(10)
 
-                # Anchos de columnas definidos para reuso exacto
-                # Pág(10), Prod(55), Cant(10), U.Cat(23), T.Cat(23), U.List(23), T.List(23), Gan(23)
                 cw = [10, 55, 10, 23, 23, 23, 23, 23]
-                
-                # Encabezados
                 pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 8)
                 h_txt = ["Pág", "Producto", "Cant", "U. Cat", "T. Cat", "U. List", "T. List", "Gan."]
                 for i in range(len(h_txt)): pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
                 pdf.ln()
 
-                # Filas
                 pdf.set_font("Arial", '', 8)
                 for _, r in df_pdf.iterrows():
                     l_n = (pdf.get_string_width(str(r['Prod'])) // 53) + 1
@@ -142,33 +189,27 @@ for idx, tab in enumerate(tabs):
                     x, y = pdf.get_x(), pdf.get_y()
                     pdf.cell(cw[0], h_f, str(r['Pag']), 1, 0, 'C')
                     pdf.multi_cell(cw[1], 5 if l_n > 1 else h_f, str(r['Prod']), 1, 'L')
-                    pdf.set_xy(x + cw[0] + cw[1], y) # Ajuste preciso de posición
+                    pdf.set_xy(x + cw[0] + cw[1], y)
                     
+                    v_tc, v_tl = r['Cant']*r['Cat_U'], r['Cant']*r['List_U']
                     pdf.cell(cw[2], h_f, str(r['Cant']), 1, 0, 'C')
                     pdf.cell(cw[3], h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(225, 245, 254); pdf.cell(cw[4], h_f, f"${fmt(r['Cant']*r['Cat_U'])}", 1, 0, 'R', True)
+                    pdf.set_fill_color(225, 245, 254); pdf.cell(cw[4], h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
                     pdf.cell(cw[5], h_f, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(255, 243, 224); pdf.cell(cw[6], h_f, f"${fmt(r['Cant']*r['List_U'])}", 1, 0, 'R', True)
+                    pdf.set_fill_color(255, 243, 224); pdf.cell(cw[6], h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
                     pdf.set_fill_color(232, 245, 233); pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(cw[7], h_f, f"${fmt((r['Cant']*r['Cat_U'])-(r['Cant']*r['List_U']))}", 1, 1, 'R', True)
+                    pdf.cell(cw[7], h_f, f"${fmt(v_tc-v_tl)}", 1, 1, 'R', True)
                     pdf.set_font("Arial", '', 8)
 
-                # --- FILA DE TOTALES ALINEADA (CORRECCIÓN FINAL) ---
+                # Fila de Totales Alineada
                 pdf.set_fill_color(230, 230, 230); pdf.set_font("Arial", 'B', 9)
-                # Suma de Pág(10) + Prod(55) + Cant(10) = 75
                 pdf.cell(75, 12, "TOTALES FINALES", 1, 0, 'R', True)
-                # U. Cat (23) vacía
                 pdf.cell(23, 12, "", 1, 0, 'C', True)
-                # T. Cat (23)
                 pdf.cell(23, 12, f"${fmt(s_tc)}", 1, 0, 'R', True)
-                # U. List (23) vacía
                 pdf.cell(23, 12, "", 1, 0, 'C', True)
-                # T. List (23)
                 pdf.cell(23, 12, f"${fmt(s_tl)}", 1, 0, 'R', True)
-                # Ganancia (23)
                 pdf.cell(23, 12, f"${fmt(s_tg)}", 1, 1, 'R', True)
 
-                # Pie de página
                 pdf.ln(5)
                 y_p = pdf.get_y()
                 if logo_pago: agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
@@ -177,4 +218,5 @@ for idx, tab in enumerate(tabs):
 
                 res_pdf = pdf.output(dest='S').encode('latin-1')
                 st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
+
 
