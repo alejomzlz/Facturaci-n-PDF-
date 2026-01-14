@@ -100,6 +100,8 @@ if 'facturas' not in st.session_state:
     st.session_state.facturas = [{"id": 0, "name": "Nueva Factura"}]
 if 'datos' not in st.session_state:
     st.session_state.datos = {}
+if 'delete_row' not in st.session_state:
+    st.session_state.delete_row = None
 
 # --- SIDEBAR (BARRA LATERAL) ---
 with st.sidebar:
@@ -169,6 +171,16 @@ for idx, tab in enumerate(tabs):
         # Renderizar filas
         filas_a_eliminar = None
         
+        # Procesar cualquier eliminación pendiente primero
+        if st.session_state.delete_row is not None:
+            delete_fid, delete_i = st.session_state.delete_row
+            if delete_fid == key_f and delete_i < len(st.session_state.datos[key_f]):
+                st.session_state.datos[key_f].pop(delete_i)
+                if len(st.session_state.datos[key_f]) == 0:
+                    st.session_state.datos[key_f].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0})
+            st.session_state.delete_row = None
+            st.rerun()
+        
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
             
@@ -193,14 +205,10 @@ for idx, tab in enumerate(tabs):
             s_tl += tl
             s_tg += gan
             
-            # Botón de eliminar
-            if cols[8].button("🗑️", key=f"del_{fid}_{i}"):
-                filas_a_eliminar = i
-
-        # Eliminar fila después del loop
-        if filas_a_eliminar is not None:
-            st.session_state.datos[key_f].pop(filas_a_eliminar)
-            st.rerun()
+            # Botón de eliminar - CORREGIDO
+            if cols[8].button("🗑️", key=f"del_{fid}_{i}", type="secondary"):
+                st.session_state.delete_row = (key_f, i)
+                st.rerun()
 
         # BARRA DE TOTALES (SISTEMA)
         color_total_gan = "#2e7d32" if s_tg >= 0 else "#d32f2f"
@@ -302,4 +310,3 @@ for idx, tab in enumerate(tabs):
 
                 res_pdf = pdf.output(dest='S').encode('latin-1')
                 st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
-
