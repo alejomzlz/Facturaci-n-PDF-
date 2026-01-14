@@ -158,15 +158,16 @@ for idx, tab in enumerate(tabs):
 
         c1, c2 = st.columns(2)
         nom_cli = c1.text_input("Cliente", key=f"n_{fid}", value=st.session_state.facturas[idx]["name"] if st.session_state.facturas[idx]["name"] != "Nueva Factura" else "")
-        fec_p = c2.date_input("Fecha de Pago", date.today(), key=f"d_{fid}")  # CORREGIDO: Cambiado a "Fecha de Pago"
+        fec_p = c2.date_input("Fecha de Pago", date.today(), key=f"d_{fid}")
         st.session_state.facturas[idx]["name"] = nom_cli if nom_cli else "Nueva Factura"
 
         s_tc, s_tl, s_tg = 0, 0, 0
         
-        st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Unit Cat | Total Cat | Unit List | Total List | Ganancia</small>", unsafe_allow_html=True)
+        # ENCABEZADOS CLAROS
+        st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Precio Catálogo | Total Catálogo | Precio Lista | Total Lista | Ganancia (Cat-List)</small>", unsafe_allow_html=True)
 
         # Renderizar filas
-        filas_a_eliminar = None  # Variable para marcar fila a eliminar
+        filas_a_eliminar = None
         
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
@@ -174,39 +175,40 @@ for idx, tab in enumerate(tabs):
             fila['Pag'] = cols[0].text_input("P", value=fila['Pag'], key=f"pg_{fid}_{i}", label_visibility="collapsed")
             fila['Prod'] = cols[1].text_input("Pr", value=fila['Prod'], key=f"pr_{fid}_{i}", label_visibility="collapsed")
             fila['Cant'] = cols[2].number_input("C", value=int(fila['Cant']), min_value=1, key=f"ct_{fid}_{i}", label_visibility="collapsed")
-            fila['Cat_U'] = cols[3].number_input("UC", value=int(fila['Cat_U']), key=f"uc_{fid}_{i}", label_visibility="collapsed")
+            fila['Cat_U'] = cols[3].number_input("PC", value=int(fila['Cat_U']), key=f"uc_{fid}_{i}", label_visibility="collapsed")
             
             tc = fila['Cant'] * fila['Cat_U']
             cols[4].markdown(f"**${fmt(tc)}**")
             
-            fila['List_U'] = cols[5].number_input("UL", value=int(fila['List_U']), key=f"ul_{fid}_{i}", label_visibility="collapsed")
+            fila['List_U'] = cols[5].number_input("PL", value=int(fila['List_U']), key=f"ul_{fid}_{i}", label_visibility="collapsed")
             tl = fila['Cant'] * fila['List_U']
             cols[6].markdown(f"**${fmt(tl)}**")
             
-            gan = tl - tc if tl > tc else tc - tl  # Ganancia absoluta
-            color_gan = "#2e7d32" if tl > tc else "#d32f2f"  # Verde si hay ganancia, rojo si pérdida
+            # GANANCIA = Total Catálogo - Total Lista
+            gan = tc - tl
+            color_gan = "#2e7d32" if gan >= 0 else "#d32f2f"
             cols[7].markdown(f"<span style='color:{color_gan}; font-weight:bold;'>${fmt(gan)}</span>", unsafe_allow_html=True)
             
             s_tc += tc
             s_tl += tl
-            s_tg += (tl - tc)
+            s_tg += gan
             
-            # Botón de eliminar - CORREGIDO: Marca la fila para eliminar después
+            # Botón de eliminar
             if cols[8].button("🗑️", key=f"del_{fid}_{i}"):
                 filas_a_eliminar = i
 
-        # Eliminar fila después del loop para evitar problemas de índice
+        # Eliminar fila después del loop
         if filas_a_eliminar is not None:
             st.session_state.datos[key_f].pop(filas_a_eliminar)
             st.rerun()
 
         # BARRA DE TOTALES (SISTEMA)
-        color_total_gan = "#2e7d32" if s_tg > 0 else "#d32f2f"
+        color_total_gan = "#2e7d32" if s_tg >= 0 else "#d32f2f"
         st.markdown(f"""
             <div style="background-color:#ffffff; border:1px solid #cccccc; padding:15px; border-radius:10px; margin:20px 0; color:#000000;">
                 <div style="display:flex; justify-content:space-around; text-align:center;">
-                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL CAT</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
-                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL LIST</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL CATÁLOGO</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL LISTA</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
                     <div><p style="margin:0; font-size:0.8rem; color:{color_total_gan};">GANANCIA TOTAL</p><strong style="font-size:1.5rem; color:{color_total_gan};">${fmt(s_tg)}</strong></div>
                 </div>
             </div>
@@ -229,13 +231,14 @@ for idx, tab in enumerate(tabs):
                 pdf.set_font("Arial", 'B', 20)
                 pdf.cell(0, 15, txt=nombre_rev.upper(), ln=True, align='R')
                 pdf.set_font("Arial", '', 10)
-                pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')  # CORREGIDO
+                pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
                 pdf.ln(10)
 
                 cw = [10, 55, 10, 23, 23, 23, 23, 23]
                 pdf.set_fill_color(240, 240, 240)
                 pdf.set_font("Arial", 'B', 8)
-                h_txt = ["Pág", "Producto", "Cant", "U. Cat", "T. Cat", "U. List", "T. List", "Gan."]
+                # ENCABEZADOS CLAROS EN EL PDF
+                h_txt = ["Pág", "Producto", "Cant", "P. Cat", "T. Cat", "P. List", "T. List", "Gan."]
                 for i in range(len(h_txt)):
                     pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
                 pdf.ln()
@@ -250,7 +253,7 @@ for idx, tab in enumerate(tabs):
                     pdf.set_xy(x + cw[0] + cw[1], y)
                     
                     v_tc, v_tl = r['Cant'] * r['Cat_U'], r['Cant'] * r['List_U']
-                    gan_fila = v_tl - v_tc
+                    gan_fila = v_tc - v_tl  # Catálogo - Lista
                     
                     pdf.cell(cw[2], h_f, str(r['Cant']), 1, 0, 'C')
                     pdf.cell(cw[3], h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
@@ -262,7 +265,7 @@ for idx, tab in enumerate(tabs):
                     
                     # Color de ganancia según resultado
                     if gan_fila >= 0:
-                        pdf.set_fill_color(232, 245, 233)  # Verde para ganancia
+                        pdf.set_fill_color(232, 245, 233)  # Verde para ganancia positiva
                     else:
                         pdf.set_fill_color(255, 230, 230)  # Rojo claro para pérdida
                     
@@ -299,3 +302,4 @@ for idx, tab in enumerate(tabs):
 
                 res_pdf = pdf.output(dest='S').encode('latin-1')
                 st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
+
