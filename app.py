@@ -7,7 +7,45 @@ import tempfile
 import re
 from pypdf import PdfReader
 
+# Configuración inicial de la página
 st.set_page_config(page_title="Facturación Pro", layout="wide")
+
+# --- CONFIGURACIÓN DEL TEMA ---
+if 'tema_oscuro' not in st.session_state:
+    st.session_state.tema_oscuro = False
+
+def aplicar_tema():
+    """Aplica el tema seleccionado a la interfaz"""
+    if st.session_state.tema_oscuro:
+        st.markdown("""
+        <style>
+        .stApp {
+            background-color: #1E1E1E;
+            color: #FFFFFF;
+        }
+        .stTextInput > div > div > input,
+        .stNumberInput > div > div > input,
+        .stDateInput > div > div > input {
+            background-color: #2D2D2D;
+            color: #FFFFFF;
+            border-color: #555555;
+        }
+        .stButton > button {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .stSelectbox > div > div > select {
+            background-color: #2D2D2D;
+            color: #FFFFFF;
+        }
+        .sidebar .sidebar-content {
+            background-color: #252525;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+# Aplicar tema al inicio
+aplicar_tema()
 
 # --- FUNCIONES DE APOYO ---
 def fmt(valor):
@@ -40,7 +78,6 @@ def importar_datos_pdf(file):
         cliente = cliente_match.group(1).strip() if cliente_match else "Cliente Importado"
         
         # Buscar Filas de productos (Pág, Prod, Cant, UC, TC, UL, TL, Gan)
-        # Este patrón es más flexible para capturar nombres de productos con espacios
         patron = r"(\d+)\s+(.*?)\s+(\d+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)\s+\$([\d\.]+)"
         matches = re.findall(patron, text)
         
@@ -67,6 +104,13 @@ if 'datos' not in st.session_state:
 # --- SIDEBAR (BARRA LATERAL) ---
 with st.sidebar:
     st.header("⚙️ Configuración")
+    
+    # Botón para cambiar tema
+    st.subheader("🎨 Tema de Interfaz")
+    if st.button("🌙 Cambiar a Tema Oscuro" if not st.session_state.tema_oscuro else "☀️ Cambiar a Tema Normal"):
+        st.session_state.tema_oscuro = not st.session_state.tema_oscuro
+        aplicar_tema()
+        st.rerun()
     
     with st.expander("🖼️ Marca", expanded=False):
         logo_rev = st.file_uploader("Logo Revista", type=["png", "jpg", "jpeg"])
@@ -114,7 +158,7 @@ for idx, tab in enumerate(tabs):
 
         c1, c2 = st.columns(2)
         nom_cli = c1.text_input("Cliente", key=f"n_{fid}", value=st.session_state.facturas[idx]["name"] if st.session_state.facturas[idx]["name"] != "Nueva Factura" else "")
-        fec_p = c2.date_input("Fecha", date.today(), key=f"d_{fid}")
+        fec_p = c2.date_input("Fecha de Pago", date.today(), key=f"d_{fid}")  # CORREGIDO: Cambiado a "Fecha de Pago"
         st.session_state.facturas[idx]["name"] = nom_cli if nom_cli else "Nueva Factura"
 
         s_tc, s_tl, s_tg = 0, 0, 0
@@ -122,6 +166,8 @@ for idx, tab in enumerate(tabs):
         st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Unit Cat | Total Cat | Unit List | Total List | Ganancia</small>", unsafe_allow_html=True)
 
         # Renderizar filas
+        filas_a_eliminar = None  # Variable para marcar fila a eliminar
+        
         for i, fila in enumerate(st.session_state.datos[key_f]):
             cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
             
@@ -137,22 +183,31 @@ for idx, tab in enumerate(tabs):
             tl = fila['Cant'] * fila['List_U']
             cols[6].markdown(f"**${fmt(tl)}**")
             
-            gan = tc - tl
-            cols[7].markdown(f"<span style='color:#2e7d32; font-weight:bold;'>${fmt(gan)}</span>", unsafe_allow_html=True)
+            gan = tl - tc if tl > tc else tc - tl  # Ganancia absoluta
+            color_gan = "#2e7d32" if tl > tc else "#d32f2f"  # Verde si hay ganancia, rojo si pérdida
+            cols[7].markdown(f"<span style='color:{color_gan}; font-weight:bold;'>${fmt(gan)}</span>", unsafe_allow_html=True)
             
-            s_tc += tc; s_tl += tl; s_tg += gan
+            s_tc += tc
+            s_tl += tl
+            s_tg += (tl - tc)
             
+            # Botón de eliminar - CORREGIDO: Marca la fila para eliminar después
             if cols[8].button("🗑️", key=f"del_{fid}_{i}"):
-                st.session_state.datos[key_f].pop(i)
-                st.rerun()
+                filas_a_eliminar = i
+
+        # Eliminar fila después del loop para evitar problemas de índice
+        if filas_a_eliminar is not None:
+            st.session_state.datos[key_f].pop(filas_a_eliminar)
+            st.rerun()
 
         # BARRA DE TOTALES (SISTEMA)
+        color_total_gan = "#2e7d32" if s_tg > 0 else "#d32f2f"
         st.markdown(f"""
             <div style="background-color:#ffffff; border:1px solid #cccccc; padding:15px; border-radius:10px; margin:20px 0; color:#000000;">
                 <div style="display:flex; justify-content:space-around; text-align:center;">
                     <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL CAT</p><strong style="font-size:1.2rem;">${fmt(s_tc)}</strong></div>
                     <div><p style="margin:0; font-size:0.8rem; color:#616161;">TOTAL LIST</p><strong style="font-size:1.2rem;">${fmt(s_tl)}</strong></div>
-                    <div><p style="margin:0; font-size:0.8rem; color:#2e7d32;">GANANCIA TOTAL</p><strong style="font-size:1.5rem; color:#2e7d32;">${fmt(s_tg)}</strong></div>
+                    <div><p style="margin:0; font-size:0.8rem; color:{color_total_gan};">GANANCIA TOTAL</p><strong style="font-size:1.5rem; color:{color_total_gan};">${fmt(s_tg)}</strong></div>
                 </div>
             </div>
         """, unsafe_allow_html=True)
@@ -169,17 +224,20 @@ for idx, tab in enumerate(tabs):
             if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}"):
                 pdf = FPDF()
                 pdf.add_page()
-                if logo_rev: agregar_imagen_segura(pdf, logo_rev, 10, 10, 35)
+                if logo_rev:
+                    agregar_imagen_segura(pdf, logo_rev, 10, 10, 35)
                 pdf.set_font("Arial", 'B', 20)
                 pdf.cell(0, 15, txt=nombre_rev.upper(), ln=True, align='R')
                 pdf.set_font("Arial", '', 10)
-                pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
+                pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')  # CORREGIDO
                 pdf.ln(10)
 
                 cw = [10, 55, 10, 23, 23, 23, 23, 23]
-                pdf.set_fill_color(240, 240, 240); pdf.set_font("Arial", 'B', 8)
+                pdf.set_fill_color(240, 240, 240)
+                pdf.set_font("Arial", 'B', 8)
                 h_txt = ["Pág", "Producto", "Cant", "U. Cat", "T. Cat", "U. List", "T. List", "Gan."]
-                for i in range(len(h_txt)): pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
+                for i in range(len(h_txt)):
+                    pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
                 pdf.ln()
 
                 pdf.set_font("Arial", '', 8)
@@ -191,32 +249,53 @@ for idx, tab in enumerate(tabs):
                     pdf.multi_cell(cw[1], 5 if l_n > 1 else h_f, str(r['Prod']), 1, 'L')
                     pdf.set_xy(x + cw[0] + cw[1], y)
                     
-                    v_tc, v_tl = r['Cant']*r['Cat_U'], r['Cant']*r['List_U']
+                    v_tc, v_tl = r['Cant'] * r['Cat_U'], r['Cant'] * r['List_U']
+                    gan_fila = v_tl - v_tc
+                    
                     pdf.cell(cw[2], h_f, str(r['Cant']), 1, 0, 'C')
                     pdf.cell(cw[3], h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(225, 245, 254); pdf.cell(cw[4], h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                    pdf.set_fill_color(225, 245, 254)
+                    pdf.cell(cw[4], h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
                     pdf.cell(cw[5], h_f, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(255, 243, 224); pdf.cell(cw[6], h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
-                    pdf.set_fill_color(232, 245, 233); pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(cw[7], h_f, f"${fmt(v_tc-v_tl)}", 1, 1, 'R', True)
+                    pdf.set_fill_color(255, 243, 224)
+                    pdf.cell(cw[6], h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                    
+                    # Color de ganancia según resultado
+                    if gan_fila >= 0:
+                        pdf.set_fill_color(232, 245, 233)  # Verde para ganancia
+                    else:
+                        pdf.set_fill_color(255, 230, 230)  # Rojo claro para pérdida
+                    
+                    pdf.set_font("Arial", 'B', 8)
+                    pdf.cell(cw[7], h_f, f"${fmt(gan_fila)}", 1, 1, 'R', True)
                     pdf.set_font("Arial", '', 8)
 
                 # Fila de Totales Alineada
-                pdf.set_fill_color(230, 230, 230); pdf.set_font("Arial", 'B', 9)
+                pdf.set_fill_color(230, 230, 230)
+                pdf.set_font("Arial", 'B', 9)
                 pdf.cell(75, 12, "TOTALES FINALES", 1, 0, 'R', True)
                 pdf.cell(23, 12, "", 1, 0, 'C', True)
                 pdf.cell(23, 12, f"${fmt(s_tc)}", 1, 0, 'R', True)
                 pdf.cell(23, 12, "", 1, 0, 'C', True)
                 pdf.cell(23, 12, f"${fmt(s_tl)}", 1, 0, 'R', True)
+                
+                # Color del total de ganancia
+                if s_tg >= 0:
+                    pdf.set_fill_color(232, 245, 233)
+                else:
+                    pdf.set_fill_color(255, 230, 230)
+                
                 pdf.cell(23, 12, f"${fmt(s_tg)}", 1, 1, 'R', True)
 
                 pdf.ln(5)
                 y_p = pdf.get_y()
-                if logo_pago: agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
-                pdf.set_xy(30, y_p + 5); pdf.set_font("Arial", 'B', 12); pdf.cell(0, 5, f"Pagar a: {num_pago}")
-                if qr_pago: agregar_imagen_segura(pdf, qr_pago, 160, y_p, 25)
+                if logo_pago:
+                    agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
+                pdf.set_xy(30, y_p + 5)
+                pdf.set_font("Arial", 'B', 12)
+                pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                if qr_pago:
+                    agregar_imagen_segura(pdf, qr_pago, 160, y_p, 25)
 
                 res_pdf = pdf.output(dest='S').encode('latin-1')
                 st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
-
-
