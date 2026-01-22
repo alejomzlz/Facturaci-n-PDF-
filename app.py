@@ -66,6 +66,12 @@ def agregar_imagen_segura(pdf, uploaded_file, x, y, w):
         except:
             pass
 
+def truncar_texto(texto, max_caracteres=40):
+    """Trunca texto largo para que quepa en el PDF"""
+    if len(texto) > max_caracteres:
+        return texto[:max_caracteres-3] + "..."
+    return texto
+
 def importar_datos_pdf(file):
     try:
         reader = PdfReader(file)
@@ -232,81 +238,177 @@ for idx, tab in enumerate(tabs):
 
         if not df_pdf.empty:
             if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}"):
-                pdf = FPDF()
-                pdf.add_page()
-                if logo_rev:
-                    agregar_imagen_segura(pdf, logo_rev, 10, 10, 35)
-                pdf.set_font("Arial", 'B', 20)
-                pdf.cell(0, 15, txt=nombre_rev.upper(), ln=True, align='R')
-                pdf.set_font("Arial", '', 10)
-                pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
-                pdf.ln(10)
+                try:
+                    pdf = FPDF()
+                    pdf.add_page()
+                    
+                    # Configurar fuente con soporte UTF-8
+                    pdf.add_font('DejaVu', '', 'DejaVuSansCondensed.ttf', uni=True)
+                    pdf.add_font('DejaVu', 'B', 'DejaVuSansCondensed-Bold.ttf', uni=True)
+                    
+                    # Usar DejaVu como fuente principal
+                    pdf.set_font("DejaVu", '', 10)
+                    
+                    if logo_rev:
+                        agregar_imagen_segura(pdf, logo_rev, 10, 10, 35)
+                    
+                    pdf.set_font("DejaVu", 'B', 20)
+                    pdf.cell(0, 15, txt=nombre_rev.upper(), ln=True, align='R')
+                    pdf.set_font("DejaVu", '', 10)
+                    pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='R')
+                    pdf.ln(10)
 
-                cw = [10, 55, 10, 23, 23, 23, 23, 23]
-                pdf.set_fill_color(240, 240, 240)
-                pdf.set_font("Arial", 'B', 8)
-                # ENCABEZADOS CLAROS EN EL PDF
-                h_txt = ["Pág", "Producto", "Cant", "P. Cat", "T. Cat", "P. List", "T. List", "Gan."]
-                for i in range(len(h_txt)):
-                    pdf.cell(cw[i], 10, h_txt[i], 1, 0, 'C', True)
-                pdf.ln()
+                    # Anchos de columna optimizados para facturas extensas
+                    cw = [8, 58, 8, 18, 18, 18, 18, 18]  # Reducido para mejor ajuste
+                    
+                    pdf.set_fill_color(240, 240, 240)
+                    pdf.set_font("DejaVu", 'B', 7)  # Fuente más pequeña
+                    
+                    # ENCABEZADOS CLAROS EN EL PDF
+                    h_txt = ["Pág", "Producto", "Cant", "P.Cat", "T.Cat", "P.List", "T.List", "Gan."]
+                    for i in range(len(h_txt)):
+                        pdf.cell(cw[i], 8, h_txt[i], 1, 0, 'C', True)
+                    pdf.ln()
 
-                pdf.set_font("Arial", '', 8)
-                for _, r in df_pdf.iterrows():
-                    l_n = (pdf.get_string_width(str(r['Prod'])) // 53) + 1
-                    h_f = max(8, l_n * 5)
-                    x, y = pdf.get_x(), pdf.get_y()
-                    pdf.cell(cw[0], h_f, str(r['Pag']), 1, 0, 'C')
-                    pdf.multi_cell(cw[1], 5 if l_n > 1 else h_f, str(r['Prod']), 1, 'L')
-                    pdf.set_xy(x + cw[0] + cw[1], y)
+                    pdf.set_font("DejaVu", '', 7)  # Fuente más pequeña para contenido
                     
-                    v_tc, v_tl = r['Cant'] * r['Cat_U'], r['Cant'] * r['List_U']
-                    gan_fila = v_tc - v_tl  # Catálogo - Lista
+                    for _, r in df_pdf.iterrows():
+                        # Truncar texto largo para que quepa
+                        prod_text = truncar_texto(str(r['Prod']), 45)
+                        
+                        # Calcular altura necesaria basada en el ancho
+                        pdf.set_font("DejaVu", '', 7)
+                        text_width = pdf.get_string_width(prod_text)
+                        max_width = cw[1] - 2  # Margen interno
+                        
+                        # Calcular número de líneas necesarias
+                        lines = max(1, int(text_width / max_width) + 1)
+                        h_f = max(6, lines * 4)  # Altura dinámica
+                        
+                        x, y = pdf.get_x(), pdf.get_y()
+                        
+                        # Página
+                        pdf.cell(cw[0], h_f, str(r['Pag']), 1, 0, 'C')
+                        
+                        # Producto con multi_cell ajustado
+                        pdf.set_xy(x + cw[0], y)
+                        pdf.multi_cell(cw[1], 4, prod_text, 1, 'L')  # Altura de línea más pequeña
+                        
+                        # Volver a la posición correcta para las demás columnas
+                        new_y = pdf.get_y()
+                        pdf.set_xy(x + cw[0] + cw[1], y)
+                        
+                        v_tc, v_tl = r['Cant'] * r['Cat_U'], r['Cant'] * r['List_U']
+                        gan_fila = v_tc - v_tl  # Catálogo - Lista
+                        
+                        # Asegurar que todas las celdas tengan la misma altura
+                        pdf.cell(cw[2], h_f, str(r['Cant']), 1, 0, 'C')
+                        pdf.cell(cw[3], h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                        pdf.set_fill_color(225, 245, 254)
+                        pdf.cell(cw[4], h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                        pdf.cell(cw[5], h_f, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                        pdf.set_fill_color(255, 243, 224)
+                        pdf.cell(cw[6], h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                        
+                        # Color de ganancia según resultado
+                        if gan_fila >= 0:
+                            pdf.set_fill_color(232, 245, 233)  # Verde para ganancia positiva
+                        else:
+                            pdf.set_fill_color(255, 230, 230)  # Rojo claro para pérdida
+                        
+                        pdf.set_font("DejaVu", 'B', 7)
+                        pdf.cell(cw[7], h_f, f"${fmt(gan_fila)}", 1, 1, 'R', True)
+                        pdf.set_font("DejaVu", '', 7)
+                        
+                        # Si la altura fue mayor, ajustar la posición Y para la siguiente fila
+                        if new_y > y + h_f:
+                            pdf.set_y(new_y)
                     
-                    pdf.cell(cw[2], h_f, str(r['Cant']), 1, 0, 'C')
-                    pdf.cell(cw[3], h_f, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(225, 245, 254)
-                    pdf.cell(cw[4], h_f, f"${fmt(v_tc)}", 1, 0, 'R', True)
-                    pdf.cell(cw[5], h_f, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                    pdf.set_fill_color(255, 243, 224)
-                    pdf.cell(cw[6], h_f, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                    # Fila de Totales Alineada
+                    pdf.set_fill_color(230, 230, 230)
+                    pdf.set_font("DejaVu", 'B', 8)
                     
-                    # Color de ganancia según resultado
-                    if gan_fila >= 0:
-                        pdf.set_fill_color(232, 245, 233)  # Verde para ganancia positiva
+                    # Calcular ancho total de las celdas anteriores
+                    total_width = cw[0] + cw[1] + cw[2] + cw[3] + cw[4] + cw[5] + cw[6] + cw[7]
+                    
+                    # Asegurar que los totales estén alineados correctamente
+                    pdf.cell(cw[0] + cw[1] + cw[2] + cw[3], 10, "TOTALES FINALES", 1, 0, 'R', True)
+                    pdf.cell(cw[4], 10, f"${fmt(s_tc)}", 1, 0, 'R', True)
+                    pdf.cell(cw[5], 10, "", 1, 0, 'C', True)
+                    pdf.cell(cw[6], 10, f"${fmt(s_tl)}", 1, 0, 'R', True)
+                    
+                    # Color del total de ganancia
+                    if s_tg >= 0:
+                        pdf.set_fill_color(232, 245, 233)
                     else:
-                        pdf.set_fill_color(255, 230, 230)  # Rojo claro para pérdida
+                        pdf.set_fill_color(255, 230, 230)
                     
-                    pdf.set_font("Arial", 'B', 8)
-                    pdf.cell(cw[7], h_f, f"${fmt(gan_fila)}", 1, 1, 'R', True)
-                    pdf.set_font("Arial", '', 8)
+                    pdf.cell(cw[7], 10, f"${fmt(s_tg)}", 1, 1, 'R', True)
 
-                # Fila de Totales Alineada
-                pdf.set_fill_color(230, 230, 230)
-                pdf.set_font("Arial", 'B', 9)
-                pdf.cell(75, 12, "TOTALES FINALES", 1, 0, 'R', True)
-                pdf.cell(23, 12, "", 1, 0, 'C', True)
-                pdf.cell(23, 12, f"${fmt(s_tc)}", 1, 0, 'R', True)
-                pdf.cell(23, 12, "", 1, 0, 'C', True)
-                pdf.cell(23, 12, f"${fmt(s_tl)}", 1, 0, 'R', True)
-                
-                # Color del total de ganancia
-                if s_tg >= 0:
-                    pdf.set_fill_color(232, 245, 233)
-                else:
-                    pdf.set_fill_color(255, 230, 230)
-                
-                pdf.cell(23, 12, f"${fmt(s_tg)}", 1, 1, 'R', True)
+                    pdf.ln(5)
+                    y_p = pdf.get_y()
+                    
+                    if logo_pago:
+                        agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
+                    
+                    pdf.set_xy(30, y_p + 5)
+                    pdf.set_font("DejaVu", 'B', 11)
+                    pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                    
+                    if qr_pago:
+                        agregar_imagen_segura(pdf, qr_pago, 160, y_p, 25)
 
-                pdf.ln(5)
-                y_p = pdf.get_y()
-                if logo_pago:
-                    agregar_imagen_segura(pdf, logo_pago, 10, y_p, 15)
-                pdf.set_xy(30, y_p + 5)
-                pdf.set_font("Arial", 'B', 12)
-                pdf.cell(0, 5, f"Pagar a: {num_pago}")
-                if qr_pago:
-                    agregar_imagen_segura(pdf, qr_pago, 160, y_p, 25)
-
-                res_pdf = pdf.output(dest='S').encode('latin-1')
-                st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
+                    res_pdf = pdf.output(dest='S').encode('latin-1')
+                    st.download_button("⬇️ Descargar PDF", res_pdf, file_name=f"Factura_{nom_cli}.pdf")
+                    
+                except Exception as e:
+                    st.error(f"Error al generar el PDF: {str(e)}")
+                    # Fallback a método simple si falla el método complejo
+                    st.info("Intentando método alternativo...")
+                    
+                    # Método alternativo más simple
+                    try:
+                        pdf = FPDF()
+                        pdf.add_page()
+                        
+                        # Usar fuente estándar
+                        pdf.set_font("Arial", 'B', 16)
+                        pdf.cell(0, 10, f"Factura: {nom_cli}", 0, 1, 'C')
+                        pdf.set_font("Arial", '', 10)
+                        pdf.cell(0, 10, f"Fecha: {fec_p.strftime('%d-%m-%Y')}", 0, 1, 'C')
+                        pdf.ln(5)
+                        
+                        # Crear tabla simplificada
+                        pdf.set_font("Arial", 'B', 8)
+                        pdf.cell(15, 6, "Pág", 1, 0, 'C')
+                        pdf.cell(80, 6, "Producto", 1, 0, 'C')
+                        pdf.cell(15, 6, "Cant", 1, 0, 'C')
+                        pdf.cell(25, 6, "T.Cat", 1, 0, 'R')
+                        pdf.cell(25, 6, "T.List", 1, 0, 'R')
+                        pdf.cell(25, 6, "Gan", 1, 1, 'R')
+                        
+                        pdf.set_font("Arial", '', 7)
+                        for _, r in df_pdf.iterrows():
+                            prod_text = truncar_texto(str(r['Prod']), 35)
+                            v_tc, v_tl = r['Cant'] * r['Cat_U'], r['Cant'] * r['List_U']
+                            gan_fila = v_tc - v_tl
+                            
+                            pdf.cell(15, 5, str(r['Pag']), 1, 0, 'C')
+                            pdf.cell(80, 5, prod_text, 1, 0, 'L')
+                            pdf.cell(15, 5, str(r['Cant']), 1, 0, 'C')
+                            pdf.cell(25, 5, f"${fmt(v_tc)}", 1, 0, 'R')
+                            pdf.cell(25, 5, f"${fmt(v_tl)}", 1, 0, 'R')
+                            pdf.cell(25, 5, f"${fmt(gan_fila)}", 1, 1, 'R')
+                        
+                        # Totales
+                        pdf.set_font("Arial", 'B', 9)
+                        pdf.cell(95, 8, "TOTALES:", 1, 0, 'R')
+                        pdf.cell(25, 8, f"${fmt(s_tc)}", 1, 0, 'R')
+                        pdf.cell(25, 8, f"${fmt(s_tl)}", 1, 0, 'R')
+                        pdf.cell(25, 8, f"${fmt(s_tg)}", 1, 1, 'R')
+                        
+                        res_pdf = pdf.output(dest='S').encode('latin-1')
+                        st.download_button("⬇️ Descargar PDF (versión simplificada)", res_pdf, file_name=f"Factura_{nom_cli}_simple.pdf")
+                        
+                    except Exception as e2:
+                        st.error(f"Error en método alternativo: {str(e2)}")
