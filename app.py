@@ -6,7 +6,6 @@ import os
 import tempfile
 import re
 from pypdf import PdfReader
-import time
 
 # Configuración inicial de la página
 st.set_page_config(page_title="Facturación Pro", layout="wide")
@@ -67,7 +66,7 @@ def agregar_imagen_segura(pdf, uploaded_file, x, y, w):
         except:
             pass
 
-def truncar_texto(texto, max_caracteres=35):
+def truncar_texto(texto, max_caracteres=30):
     """Trunca texto largo para que quepa en el PDF"""
     if not isinstance(texto, str):
         texto = str(texto)
@@ -121,19 +120,14 @@ def importar_datos_pdf(file):
 
 # --- INICIALIZACIÓN DEL ESTADO DE SESIÓN ---
 # Inicializar todo en un solo lugar para evitar problemas
-def inicializar_session_state():
-    """Inicializa todas las variables de session_state"""
-    if 'initialized' not in st.session_state:
-        st.session_state.initialized = True
-        st.session_state.facturas = [{"id": 0, "name": "Nueva Factura"}]
-        st.session_state.datos = {}
-        st.session_state.next_factura_id = 1
-        st.session_state.delete_row = None
-        st.session_state.last_action = None
-        st.session_state.tema_oscuro = False
-
-# Ejecutar inicialización
-inicializar_session_state()
+if 'facturas' not in st.session_state:
+    st.session_state.facturas = [{"id": 0, "name": "Nueva Factura"}]
+if 'datos' not in st.session_state:
+    st.session_state.datos = {}
+if 'delete_row' not in st.session_state:
+    st.session_state.delete_row = None
+if 'next_factura_id' not in st.session_state:
+    st.session_state.next_factura_id = 1
 
 # --- SIDEBAR (BARRA LATERAL) ---
 with st.sidebar:
@@ -157,22 +151,12 @@ with st.sidebar:
     
     st.divider()
     
-    # DEBUG: Mostrar estado actual para diagnóstico
-    if st.checkbox("🔧 Mostrar información de depuración"):
-        st.write(f"Total facturas: {len(st.session_state.facturas)}")
-        st.write(f"Facturas: {st.session_state.facturas}")
-        st.write(f"Keys en datos: {list(st.session_state.datos.keys())}")
-        if st.session_state.datos:
-            for key, valor in st.session_state.datos.items():
-                st.write(f"{key}: {len(valor)} filas")
-    
     # SECCIÓN RESTAURADA: IMPORTAR PDF
     st.subheader("🔄 Re-editar")
     archivo_pdf = st.file_uploader("Subir factura PDF anterior", type=["pdf"])
     if archivo_pdf and st.button("📥 Cargar Datos del PDF"):
         res = importar_datos_pdf(archivo_pdf)
         if res and res["productos"]:
-            # Usar next_factura_id para evitar conflictos
             nid = st.session_state.next_factura_id
             st.session_state.facturas.append({"id": nid, "name": res["cliente"]})
             st.session_state.datos[f"f_{nid}"] = res["productos"]
@@ -190,14 +174,9 @@ if st.button("➕ Crear Nueva Factura"):
     nid = st.session_state.next_factura_id
     st.session_state.facturas.append({"id": nid, "name": f"Factura {nid}"})
     st.session_state.next_factura_id += 1
-    st.session_state.last_action = f"crear_factura_{nid}"
     st.rerun()
 
-# Crear pestañas
-tab_titles = [f["name"] for f in st.session_state.facturas]
-tabs = st.tabs(tab_titles)
-
-# Procesar eliminaciones pendientes una sola vez
+# Procesar eliminaciones pendientes
 if st.session_state.delete_row is not None:
     delete_fid, delete_i = st.session_state.delete_row
     if delete_fid in st.session_state.datos and delete_i < len(st.session_state.datos[delete_fid]):
@@ -206,8 +185,11 @@ if st.session_state.delete_row is not None:
         if len(st.session_state.datos[delete_fid]) == 0:
             st.session_state.datos[delete_fid].append({"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0})
     st.session_state.delete_row = None
-    st.session_state.last_action = f"eliminar_fila_{delete_fid}_{delete_i}"
     st.rerun()
+
+# Crear pestañas
+tab_titles = [f["name"] for f in st.session_state.facturas]
+tabs = st.tabs(tab_titles)
 
 # Renderizar cada pestaña
 for idx, tab in enumerate(tabs):
@@ -218,10 +200,6 @@ for idx, tab in enumerate(tabs):
         
         # Inicializar datos si la pestaña es nueva
         if key_f not in st.session_state.datos:
-            st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
-        
-        # Verificar que los datos sean una lista válida
-        if not isinstance(st.session_state.datos[key_f], list):
             st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
         
         # Encabezado de factura
@@ -245,102 +223,89 @@ for idx, tab in enumerate(tabs):
         if nom_cli and nom_cli != factura_actual["name"]:
             st.session_state.facturas[idx]["name"] = nom_cli
         
-        # Mostrar número de filas actual para depuración
-        st.caption(f"📊 {len(st.session_state.datos[key_f])} filas en esta factura")
-        
         s_tc, s_tl, s_tg = 0, 0, 0
         
         # ENCABEZADOS CLAROS
         st.markdown("<small style='color:gray;'>Pág | Producto | Cant | Precio Catálogo | Total Catálogo | Precio Lista | Total Lista | Ganancia (Cat-List) | </small>", unsafe_allow_html=True)
         
-        # Crear contenedor para las filas
-        filas_container = st.container()
-        
-        with filas_container:
-            # Renderizar filas existentes
-            for i, fila in enumerate(st.session_state.datos[key_f]):
-                # Verificar que la fila tenga la estructura correcta
-                if not isinstance(fila, dict):
-                    fila = {"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}
-                    st.session_state.datos[key_f][i] = fila
-                
-                # Crear columnas para esta fila
-                cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
-                
-                # Columna 1: Página
-                with cols[0]:
-                    fila['Pag'] = st.text_input(
-                        "P", 
-                        value=fila.get('Pag', ''),
-                        key=f"pag_{fid}_{idx}_{i}",
-                        label_visibility="collapsed"
-                    )
-                
-                # Columna 2: Producto
-                with cols[1]:
-                    fila['Prod'] = st.text_input(
-                        "Pr", 
-                        value=fila.get('Prod', ''),
-                        key=f"prod_{fid}_{idx}_{i}",
-                        label_visibility="collapsed"
-                    )
-                
-                # Columna 3: Cantidad
-                with cols[2]:
-                    fila['Cant'] = st.number_input(
-                        "C", 
-                        value=int(fila.get('Cant', 1)),
-                        min_value=1,
-                        key=f"cant_{fid}_{idx}_{i}",
-                        label_visibility="collapsed"
-                    )
-                
-                # Columna 4: Precio Catálogo
-                with cols[3]:
-                    fila['Cat_U'] = st.number_input(
-                        "PC", 
-                        value=int(fila.get('Cat_U', 0)),
-                        min_value=0,
-                        key=f"cat_u_{fid}_{idx}_{i}",
-                        label_visibility="collapsed"
-                    )
-                
-                # Columna 5: Total Catálogo (calculado)
-                with cols[4]:
-                    tc = fila['Cant'] * fila['Cat_U']
-                    st.markdown(f"<div style='text-align: right;'><strong>${fmt(tc)}</strong></div>", unsafe_allow_html=True)
-                
-                # Columna 6: Precio Lista
-                with cols[5]:
-                    fila['List_U'] = st.number_input(
-                        "PL", 
-                        value=int(fila.get('List_U', 0)),
-                        min_value=0,
-                        key=f"list_u_{fid}_{idx}_{i}",
-                        label_visibility="collapsed"
-                    )
-                
-                # Columna 7: Total Lista (calculado)
-                with cols[6]:
-                    tl = fila['Cant'] * fila['List_U']
-                    st.markdown(f"<div style='text-align: right;'><strong>${fmt(tl)}</strong></div>", unsafe_allow_html=True)
-                
-                # Columna 8: Ganancia
-                with cols[7]:
-                    gan = tc - tl
-                    color_gan = "#2e7d32" if gan >= 0 else "#d32f2f"
-                    st.markdown(f"<div style='text-align: right; color:{color_gan};'><strong>${fmt(gan)}</strong></div>", unsafe_allow_html=True)
-                
-                # Columna 9: Botón eliminar
-                with cols[8]:
-                    if st.button("🗑️", key=f"del_{fid}_{idx}_{i}", type="secondary", help="Eliminar esta fila"):
-                        st.session_state.delete_row = (key_f, i)
-                        st.rerun()
-                
-                # Acumular totales
-                s_tc += tc
-                s_tl += tl
-                s_tg += gan
+        # Renderizar filas existentes
+        for i, fila in enumerate(st.session_state.datos[key_f]):
+            cols = st.columns([0.5, 2.5, 0.6, 1.2, 1.2, 1.2, 1.2, 1.2, 0.4])
+            
+            # Columna 1: Página
+            with cols[0]:
+                fila['Pag'] = st.text_input(
+                    "P", 
+                    value=fila.get('Pag', ''),
+                    key=f"pag_{fid}_{idx}_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            # Columna 2: Producto
+            with cols[1]:
+                fila['Prod'] = st.text_input(
+                    "Pr", 
+                    value=fila.get('Prod', ''),
+                    key=f"prod_{fid}_{idx}_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            # Columna 3: Cantidad
+            with cols[2]:
+                fila['Cant'] = st.number_input(
+                    "C", 
+                    value=int(fila.get('Cant', 1)),
+                    min_value=1,
+                    key=f"cant_{fid}_{idx}_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            # Columna 4: Precio Catálogo
+            with cols[3]:
+                fila['Cat_U'] = st.number_input(
+                    "PC", 
+                    value=int(fila.get('Cat_U', 0)),
+                    min_value=0,
+                    key=f"cat_u_{fid}_{idx}_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            # Columna 5: Total Catálogo (calculado)
+            with cols[4]:
+                tc = fila['Cant'] * fila['Cat_U']
+                st.markdown(f"<div style='text-align: right;'><strong>${fmt(tc)}</strong></div>", unsafe_allow_html=True)
+            
+            # Columna 6: Precio Lista
+            with cols[5]:
+                fila['List_U'] = st.number_input(
+                    "PL", 
+                    value=int(fila.get('List_U', 0)),
+                    min_value=0,
+                    key=f"list_u_{fid}_{idx}_{i}",
+                    label_visibility="collapsed"
+                )
+            
+            # Columna 7: Total Lista (calculado)
+            with cols[6]:
+                tl = fila['Cant'] * fila['List_U']
+                st.markdown(f"<div style='text-align: right;'><strong>${fmt(tl)}</strong></div>", unsafe_allow_html=True)
+            
+            # Columna 8: Ganancia
+            with cols[7]:
+                gan = tc - tl
+                color_gan = "#2e7d32" if gan >= 0 else "#d32f2f"
+                st.markdown(f"<div style='text-align: right; color:{color_gan};'><strong>${fmt(gan)}</strong></div>", unsafe_allow_html=True)
+            
+            # Columna 9: Botón eliminar
+            with cols[8]:
+                if st.button("🗑️", key=f"del_{fid}_{idx}_{i}", type="secondary", help="Eliminar esta fila"):
+                    st.session_state.delete_row = (key_f, i)
+                    st.rerun()
+            
+            # Acumular totales
+            s_tc += tc
+            s_tl += tl
+            s_tg += gan
         
         # BARRA DE TOTALES
         color_total_gan = "#2e7d32" if s_tg >= 0 else "#d32f2f"
@@ -354,24 +319,20 @@ for idx, tab in enumerate(tabs):
             </div>
         """, unsafe_allow_html=True)
         
-        # Botón para agregar fila - CORREGIDO
+        # Botón para agregar fila
         col1, col2 = st.columns([3, 1])
         with col1:
             if st.button("➕ Agregar Nueva Fila", key=f"add_{fid}_{idx}", use_container_width=True):
-                # Agregar nueva fila vacía
                 nueva_fila = {"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}
                 st.session_state.datos[key_f].append(nueva_fila)
-                st.session_state.last_action = f"agregar_fila_{fid}"
                 st.rerun()
         
         with col2:
-            # Botón para limpiar todas las filas
             if st.button("🧹 Limpiar Todo", key=f"clear_{fid}_{idx}", type="secondary", use_container_width=True):
                 st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
-                st.session_state.last_action = f"limpiar_{fid}"
                 st.rerun()
         
-        # GENERACIÓN DE PDF
+        # GENERACIÓN DE PDF MEJORADA
         if st.session_state.datos[key_f]:
             # Filtrar filas vacías
             filas_validas = [f for f in st.session_state.datos[key_f] if f.get('Prod', '').strip() != ""]
@@ -382,93 +343,150 @@ for idx, tab in enumerate(tabs):
                 if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}_{idx}", type="primary", use_container_width=True):
                     with st.spinner("Generando PDF..."):
                         try:
-                            # Crear PDF en orientación horizontal
-                            pdf = FPDF(orientation='L')
+                            # CORRECCIÓN: PDF en orientación VERTICAL (no landscape)
+                            pdf = FPDF(orientation='P')  # Portrait (vertical)
                             pdf.add_page()
                             
-                            # Configurar márgenes
-                            pdf.set_left_margin(5)
-                            pdf.set_right_margin(5)
-                            pdf.set_top_margin(10)
+                            # Configurar márgenes más amplios
+                            pdf.set_left_margin(10)
+                            pdf.set_right_margin(10)
+                            pdf.set_top_margin(15)
                             
                             # Logo
                             if logo_rev:
                                 try:
-                                    agregar_imagen_segura(pdf, logo_rev, 5, 10, 30)
+                                    agregar_imagen_segura(pdf, logo_rev, 10, 15, 30)
                                 except:
                                     pass
                             
                             # Título
-                            pdf.set_font("Arial", 'B', 16)
-                            pdf.set_xy(0, 10)
+                            pdf.set_font("Arial", 'B', 18)
+                            pdf.set_xy(0, 15)
                             pdf.cell(0, 10, txt=nombre_rev.upper(), ln=True, align='C')
                             
-                            # Información
-                            pdf.set_font("Arial", '', 10)
-                            pdf.cell(0, 5, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='C')
+                            # Información de cliente y fecha
+                            pdf.set_font("Arial", '', 11)
+                            pdf.cell(0, 7, f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}", ln=True, align='C')
                             pdf.ln(8)
                             
-                            # Tabla
-                            cw = [10, 75, 12, 22, 22, 22, 22, 22]
+                            # ANCHOS DE COLUMNA OPTIMIZADOS para orientación vertical
+                            # Ancho total disponible: 210mm - 20mm de márgenes = 190mm
+                            cw = [12, 75, 12, 22, 22, 22, 22, 22]  # Total: 190mm
                             
-                            # Encabezados
+                            # Encabezados de tabla
                             pdf.set_fill_color(240, 240, 240)
-                            pdf.set_font("Arial", 'B', 8)
+                            pdf.set_font("Arial", 'B', 9)
+                            
                             headers = ["Pág", "Producto", "Cant", "P.Cat", "T.Cat", "P.List", "T.List", "Gan."]
                             for i, header in enumerate(headers):
                                 pdf.cell(cw[i], 8, header, 1, 0, 'C', True)
                             pdf.ln()
                             
-                            # Contenido
-                            pdf.set_font("Arial", '', 7)
+                            # Contenido de la tabla
+                            pdf.set_font("Arial", '', 8)
+                            
                             for _, r in df_pdf.iterrows():
+                                # Limpiar y truncar texto del producto
                                 prod_text = limpiar_texto_para_pdf(str(r['Prod']))
-                                prod_text = truncar_texto(prod_text, 50)
+                                prod_text = truncar_texto(prod_text, 35)  # Menos caracteres en vertical
                                 
+                                # Calcular valores
                                 v_tc = r['Cant'] * r['Cat_U']
                                 v_tl = r['Cant'] * r['List_U']
                                 gan_fila = v_tc - v_tl
                                 
+                                # Calcular si el texto necesita múltiples líneas
+                                pdf.set_font("Arial", '', 8)
+                                text_width = pdf.get_string_width(prod_text)
+                                max_width = cw[1] - 2
+                                
+                                if text_width > max_width:
+                                    # Calcular líneas necesarias
+                                    lines_needed = max(1, int(text_width / max_width) + 1)
+                                    row_height = max(6, lines_needed * 3.5)
+                                else:
+                                    row_height = 6
+                                
+                                # Guardar posición inicial
                                 x, y = pdf.get_x(), pdf.get_y()
                                 
-                                pdf.cell(cw[0], 6, str(r['Pag']), 1, 0, 'C')
+                                # Columna 1: Página
+                                pdf.cell(cw[0], row_height, str(r['Pag']), 1, 0, 'C')
                                 
+                                # Columna 2: Producto (usando multi_cell para texto largo)
                                 pdf.set_xy(x + cw[0], y)
-                                pdf.multi_cell(cw[1], 3, prod_text, 1, 'L')
-                                
-                                new_y = pdf.get_y()
-                                pdf.set_xy(x + cw[0] + cw[1], y)
-                                
-                                pdf.cell(cw[2], 6, str(r['Cant']), 1, 0, 'C')
-                                pdf.cell(cw[3], 6, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                                pdf.set_fill_color(225, 245, 254)
-                                pdf.cell(cw[4], 6, f"${fmt(v_tc)}", 1, 0, 'R', True)
-                                pdf.set_fill_color(255, 255, 255)
-                                pdf.cell(cw[5], 6, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                                pdf.set_fill_color(255, 243, 224)
-                                pdf.cell(cw[6], 6, f"${fmt(v_tl)}", 1, 0, 'R', True)
-                                
-                                if gan_fila >= 0:
-                                    pdf.set_fill_color(232, 245, 233)
+                                if row_height > 6:
+                                    # Si necesita múltiples líneas
+                                    pdf.multi_cell(cw[1], 3.5, prod_text, 1, 'L')
                                 else:
-                                    pdf.set_fill_color(255, 230, 230)
+                                    # Si cabe en una línea
+                                    pdf.cell(cw[1], row_height, prod_text, 1, 0, 'L')
                                 
-                                pdf.set_font("Arial", 'B', 7)
-                                pdf.cell(cw[7], 6, f"${fmt(gan_fila)}", 1, 1, 'R', True)
-                                pdf.set_font("Arial", '', 7)
+                                # Obtener nueva posición Y después del multi_cell
+                                new_y = pdf.get_y()
                                 
-                                if new_y > y + 6:
+                                # Reposicionar para las columnas restantes
+                                if row_height > 6:
+                                    pdf.set_xy(x + cw[0] + cw[1], y)
+                                else:
+                                    # Si no usó multi_cell, ya está en la posición correcta
+                                    pass
+                                
+                                # Columnas restantes
+                                pdf.cell(cw[2], row_height, str(r['Cant']), 1, 0, 'C')
+                                
+                                # Precio y Total Catálogo
+                                pdf.cell(cw[3], row_height, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                                pdf.set_fill_color(225, 245, 254)
+                                pdf.cell(cw[4], row_height, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                                
+                                # Precio y Total Lista
+                                pdf.set_fill_color(255, 255, 255)
+                                pdf.cell(cw[5], row_height, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                                pdf.set_fill_color(255, 243, 224)
+                                pdf.cell(cw[6], row_height, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                                
+                                # Ganancia
+                                if gan_fila >= 0:
+                                    pdf.set_fill_color(232, 245, 233)  # Verde
+                                else:
+                                    pdf.set_fill_color(255, 230, 230)  # Rojo
+                                
+                                pdf.set_font("Arial", 'B', 8)
+                                pdf.cell(cw[7], row_height, f"${fmt(gan_fila)}", 1, 1, 'R', True)
+                                pdf.set_font("Arial", '', 8)
+                                
+                                # Ajustar posición Y si el multi_cell fue más alto
+                                if new_y > y + row_height:
                                     pdf.set_y(new_y)
+                                
+                                # Verificar si necesitamos nueva página
+                                if pdf.get_y() > 270:  # Cerca del final de la página
+                                    pdf.add_page()
+                                    pdf.set_font("Arial", 'B', 9)
+                                    pdf.cell(0, 10, "CONTINUACIÓN...", 0, 1, 'C')
+                                    pdf.ln(2)
+                                    
+                                    # Reimprimir encabezados en nueva página
+                                    pdf.set_fill_color(240, 240, 240)
+                                    for i, header in enumerate(headers):
+                                        pdf.cell(cw[i], 8, header, 1, 0, 'C', True)
+                                    pdf.ln()
+                                    pdf.set_font("Arial", '', 8)
                             
-                            # Totales
+                            # Línea de totales - CORREGIDA para alineación
                             pdf.set_fill_color(230, 230, 230)
-                            pdf.set_font("Arial", 'B', 9)
+                            pdf.set_font("Arial", 'B', 10)
+                            
+                            # Calcular ancho total para los primeros 4 campos
                             total_cell_width = cw[0] + cw[1] + cw[2] + cw[3]
+                            
                             pdf.cell(total_cell_width, 10, "TOTALES FINALES", 1, 0, 'R', True)
                             pdf.cell(cw[4], 10, f"${fmt(s_tc)}", 1, 0, 'R', True)
-                            pdf.cell(cw[5], 10, "", 1, 0, 'C', True)
+                            pdf.cell(cw[5], 10, "", 1, 0, 'C', True)  # Celda vacía para P.List
                             pdf.cell(cw[6], 10, f"${fmt(s_tl)}", 1, 0, 'R', True)
                             
+                            # Color del total de ganancia
                             if s_tg >= 0:
                                 pdf.set_fill_color(232, 245, 233)
                             else:
@@ -477,22 +495,24 @@ for idx, tab in enumerate(tabs):
                             pdf.cell(cw[7], 10, f"${fmt(s_tg)}", 1, 1, 'R', True)
                             
                             # Información de pago
-                            pdf.ln(5)
-                            y_p = pdf.get_y()
+                            pdf.ln(8)
                             
                             if logo_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, logo_pago, 5, y_p, 15)
+                                    agregar_imagen_segura(pdf, logo_pago, 10, pdf.get_y(), 15)
                                 except:
                                     pass
                             
-                            pdf.set_xy(25, y_p + 5)
-                            pdf.set_font("Arial", 'B', 11)
-                            pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                            pdf.set_xy(30, pdf.get_y() + 5)
+                            pdf.set_font("Arial", 'B', 12)
+                            if num_pago:
+                                pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                            else:
+                                pdf.cell(0, 5, "Información de pago no configurada")
                             
                             if qr_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, qr_pago, 250, y_p, 25)
+                                    agregar_imagen_segura(pdf, qr_pago, 160, pdf.get_y() - 5, 25)
                                 except:
                                     pass
                             
@@ -500,7 +520,7 @@ for idx, tab in enumerate(tabs):
                             res_pdf = pdf.output(dest='S').encode('latin-1')
                             
                             # Botón de descarga
-                            st.success("✅ PDF generado exitosamente")
+                            st.success("✅ PDF generado exitosamente en formato vertical")
                             st.download_button(
                                 label="⬇️ Descargar PDF",
                                 data=res_pdf,
@@ -511,6 +531,58 @@ for idx, tab in enumerate(tabs):
                             
                         except Exception as e:
                             st.error(f"Error al generar el PDF: {str(e)}")
+                            
+                            # Método alternativo simple
+                            try:
+                                pdf = FPDF()
+                                pdf.add_page()
+                                
+                                pdf.set_font("Arial", 'B', 16)
+                                pdf.cell(0, 10, f"FACTURA: {nom_cli}", 0, 1, 'C')
+                                pdf.set_font("Arial", '', 10)
+                                pdf.cell(0, 5, f"Fecha: {fec_p.strftime('%d-%m-%Y')}", 0, 1, 'C')
+                                pdf.ln(5)
+                                
+                                # Tabla simple con menos columnas
+                                pdf.set_font("Arial", 'B', 8)
+                                pdf.cell(15, 6, "Pág", 1, 0, 'C')
+                                pdf.cell(80, 6, "Producto", 1, 0, 'C')
+                                pdf.cell(15, 6, "Cant", 1, 0, 'C')
+                                pdf.cell(30, 6, "T.Cat", 1, 0, 'R')
+                                pdf.cell(30, 6, "T.List", 1, 0, 'R')
+                                pdf.cell(30, 6, "Gan.", 1, 1, 'R')
+                                
+                                pdf.set_font("Arial", '', 7)
+                                for _, r in df_pdf.iterrows():
+                                    prod_text = truncar_texto(limpiar_texto_para_pdf(str(r['Prod'])), 30)
+                                    v_tc = r['Cant'] * r['Cat_U']
+                                    v_tl = r['Cant'] * r['List_U']
+                                    gan_fila = v_tc - v_tl
+                                    
+                                    pdf.cell(15, 5, str(r['Pag']), 1, 0, 'C')
+                                    pdf.cell(80, 5, prod_text, 1, 0, 'L')
+                                    pdf.cell(15, 5, str(r['Cant']), 1, 0, 'C')
+                                    pdf.cell(30, 5, f"${fmt(v_tc)}", 1, 0, 'R')
+                                    pdf.cell(30, 5, f"${fmt(v_tl)}", 1, 0, 'R')
+                                    pdf.cell(30, 5, f"${fmt(gan_fila)}", 1, 1, 'R')
+                                
+                                # Totales
+                                pdf.set_font("Arial", 'B', 9)
+                                pdf.cell(110, 8, "TOTALES:", 1, 0, 'R')
+                                pdf.cell(30, 8, f"${fmt(s_tc)}", 1, 0, 'R')
+                                pdf.cell(30, 8, f"${fmt(s_tl)}", 1, 0, 'R')
+                                pdf.cell(30, 8, f"${fmt(s_tg)}", 1, 1, 'R')
+                                
+                                res_pdf_simple = pdf.output(dest='S').encode('latin-1')
+                                
+                                st.download_button(
+                                    label="⬇️ Descargar PDF Simplificado",
+                                    data=res_pdf_simple,
+                                    file_name=f"Factura_{nom_cli.replace(' ', '_')}_simple.pdf",
+                                    mime="application/pdf"
+                                )
+                                
+                            except Exception as e2:
+                                st.error(f"Error crítico: {str(e2)}")
             else:
                 st.warning("Agrega al menos un producto con nombre para generar el PDF.")
-
