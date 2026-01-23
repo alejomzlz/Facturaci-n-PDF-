@@ -75,12 +75,13 @@ def limpiar_texto_para_pdf(texto):
         'Á': 'A', 'É': 'E', 'Í': 'I', 'Ó': 'O', 'Ú': 'U',
         'ñ': 'n', 'Ñ': 'N',
         '´': "'", '`': "'",
+        '&': 'y'
     }
     for char, replacement in reemplazos.items():
         texto = texto.replace(char, replacement)
     return texto
 
-def dividir_texto(texto, max_ancho, pdf, font_size=8):
+def dividir_texto_en_lineas(texto, max_ancho, pdf, font_size=8):
     """Divide un texto en múltiples líneas para que quepa en el ancho especificado"""
     pdf.set_font("Arial", '', font_size)
     palabras = texto.split()
@@ -94,16 +95,26 @@ def dividir_texto(texto, max_ancho, pdf, font_size=8):
         else:
             if linea_actual:
                 lineas.append(linea_actual)
-            linea_actual = palabra
+            # Si una palabra individual es más larga que el ancho máximo
+            if pdf.get_string_width(palabra) > max_ancho:
+                # Dividir la palabra
+                parte = ""
+                for letra in palabra:
+                    if pdf.get_string_width(parte + letra) <= max_ancho:
+                        parte += letra
+                    else:
+                        if parte:
+                            lineas.append(parte)
+                        parte = letra
+                if parte:
+                    lineas.append(parte)
+            else:
+                linea_actual = palabra
     
     if linea_actual:
         lineas.append(linea_actual)
     
     return lineas
-
-def calcular_altura_texto(lineas, altura_linea=4):
-    """Calcula la altura total necesaria para un texto con múltiples líneas"""
-    return len(lineas) * altura_linea
 
 def importar_datos_pdf(file):
     try:
@@ -320,7 +331,7 @@ for idx, tab in enumerate(tabs):
                 st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
                 st.rerun()
         
-        # GENERACIÓN DE PDF CON CELDAS QUE SE AJUSTAN AL CONTENIDO
+        # GENERACIÓN DE PDF MEJORADA
         if st.session_state.datos[key_f]:
             filas_validas = [f for f in st.session_state.datos[key_f] if f.get('Prod', '').strip() != ""]
             
@@ -330,25 +341,24 @@ for idx, tab in enumerate(tabs):
                 if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}_{idx}", type="primary", use_container_width=True):
                     with st.spinner("Generando PDF..."):
                         try:
-                            # PDF en formato vertical con celdas ajustables
                             pdf = FPDF(orientation='P', unit='mm', format='A4')
                             pdf.add_page()
                             
-                            # Márgenes pequeños
-                            pdf.set_left_margin(8)
-                            pdf.set_right_margin(8)
-                            pdf.set_top_margin(10)
+                            # Márgenes
+                            pdf.set_left_margin(10)
+                            pdf.set_right_margin(10)
+                            pdf.set_top_margin(15)
                             
-                            # Logo
+                            # Logo revista
                             if logo_rev:
                                 try:
-                                    agregar_imagen_segura(pdf, logo_rev, 8, 10, 25)
+                                    agregar_imagen_segura(pdf, logo_rev, 10, 15, 30)
                                 except:
                                     pass
                             
                             # Título
-                            pdf.set_font("Arial", 'B', 14)
-                            pdf.set_xy(0, 10)
+                            pdf.set_font("Arial", 'B', 16)
+                            pdf.set_xy(0, 15)
                             pdf.cell(0, 8, txt=nombre_rev.upper(), ln=True, align='C')
                             
                             # Información del cliente
@@ -357,30 +367,18 @@ for idx, tab in enumerate(tabs):
                             pdf.cell(0, 6, cliente_text, ln=True, align='C')
                             pdf.ln(5)
                             
-                            # ANCHOS FIJOS PARA COLUMNAS (excepto producto)
-                            # Ancho total: 210mm - 16mm márgenes = 194mm
-                            # Distribución: Pág(12) + Producto(AUTO) + Cant(12) + P.Cat(20) + T.Cat(20) + P.List(20) + T.List(20) + Gan(20) = 124mm + Producto
-                            # Producto tomará el espacio restante: 194mm - 124mm = 70mm mínimo
-                            
-                            # Definir anchos fijos
-                            ancho_fijos = [12, 12, 20, 20, 20, 20, 20]  # Pág, Cant, P.Cat, T.Cat, P.List, T.List, Gan
-                            ancho_total_fijos = sum(ancho_fijos)  # 124mm
-                            ancho_disponible = 194  # 210 - 16 márgenes
-                            ancho_producto = ancho_disponible - ancho_total_fijos  # Lo que sobra para producto
+                            # ANCHOS DE COLUMNAS OPTIMIZADOS
+                            # Ancho total: 210mm - 20mm márgenes = 190mm
+                            cw = [10, 85, 10, 15, 15, 15, 15, 15]  # Total: 180mm
                             
                             # Encabezados
                             pdf.set_fill_color(240, 240, 240)
                             pdf.set_font("Arial", 'B', 8)
                             
-                            # Primera fila de encabezados
-                            pdf.cell(12, 6, "Pág", 1, 0, 'C', True)
-                            pdf.cell(ancho_producto, 6, "Producto", 1, 0, 'C', True)
-                            pdf.cell(12, 6, "Cant", 1, 0, 'C', True)
-                            pdf.cell(20, 6, "P.Cat", 1, 0, 'C', True)
-                            pdf.cell(20, 6, "T.Cat", 1, 0, 'C', True)
-                            pdf.cell(20, 6, "P.List", 1, 0, 'C', True)
-                            pdf.cell(20, 6, "T.List", 1, 0, 'C', True)
-                            pdf.cell(20, 6, "Gan.", 1, 1, 'C', True)
+                            headers = ["Pág", "Producto", "Cant", "P.Cat", "T.Cat", "P.List", "T.List", "Gan."]
+                            for i, header in enumerate(headers):
+                                pdf.cell(cw[i], 6, header, 1, 0, 'C', True)
+                            pdf.ln()
                             
                             pdf.set_font("Arial", '', 7)
                             
@@ -403,10 +401,10 @@ for idx, tab in enumerate(tabs):
                                 # Preparar texto del producto
                                 prod_text = limpiar_texto_para_pdf(str(r['Prod']))
                                 
-                                # DIVIDIR EL TEXTO DEL PRODUCTO EN MÚLTIPLES LÍNEAS
-                                lineas_producto = dividir_texto(prod_text, ancho_producto - 2, pdf, 7)
-                                num_lineas = len(lineas_producto)
-                                altura_fila = max(6, num_lineas * 3.5)  # Altura mínima 6mm
+                                # DIVIDIR TEXTO EN MÚLTIPLES LÍNEAS
+                                lineas = dividir_texto_en_lineas(prod_text, cw[1] - 2, pdf, 7)
+                                num_lineas = len(lineas)
+                                altura_fila = max(5, num_lineas * 3)  # Mínimo 5mm, 3mm por línea
                                 
                                 # Verificar si necesitamos nueva página
                                 if pdf.get_y() + altura_fila > 270:
@@ -414,54 +412,49 @@ for idx, tab in enumerate(tabs):
                                     # Reimprimir encabezados
                                     pdf.set_fill_color(240, 240, 240)
                                     pdf.set_font("Arial", 'B', 8)
-                                    pdf.cell(12, 6, "Pág", 1, 0, 'C', True)
-                                    pdf.cell(ancho_producto, 6, "Producto", 1, 0, 'C', True)
-                                    pdf.cell(12, 6, "Cant", 1, 0, 'C', True)
-                                    pdf.cell(20, 6, "P.Cat", 1, 0, 'C', True)
-                                    pdf.cell(20, 6, "T.Cat", 1, 0, 'C', True)
-                                    pdf.cell(20, 6, "P.List", 1, 0, 'C', True)
-                                    pdf.cell(20, 6, "T.List", 1, 0, 'C', True)
-                                    pdf.cell(20, 6, "Gan.", 1, 1, 'C', True)
+                                    for i, header in enumerate(headers):
+                                        pdf.cell(cw[i], 6, header, 1, 0, 'C', True)
+                                    pdf.ln()
                                     pdf.set_font("Arial", '', 7)
                                 
-                                # Guardar posición X inicial
+                                # Guardar posición inicial
                                 x_inicial = pdf.get_x()
                                 y_inicial = pdf.get_y()
                                 
                                 # Columna 1: Página
-                                pdf.cell(12, altura_fila, str(r['Pag']), 1, 0, 'C')
+                                pdf.cell(cw[0], altura_fila, str(r['Pag']), 1, 0, 'C')
                                 
                                 # Columna 2: Producto (MÚLTIPLES LÍNEAS)
-                                # Escribir cada línea del producto
-                                for i, linea in enumerate(lineas_producto):
-                                    if i == 0:
-                                        # Primera línea
-                                        pdf.cell(ancho_producto, altura_fila/num_lineas, linea, 'LR', 0, 'L')
-                                    else:
-                                        # Líneas adicionales
-                                        pdf.set_xy(x_inicial + 12, y_inicial + (i * altura_fila/num_lineas))
-                                        pdf.cell(ancho_producto, altura_fila/num_lineas, linea, 'LR', 0, 'L')
+                                # Dibujar borde izquierdo
+                                pdf.cell(cw[1], altura_fila, "", 'L', 0, 'L')
                                 
-                                # Volver a la posición correcta para continuar
-                                pdf.set_xy(x_inicial + 12 + ancho_producto, y_inicial)
+                                # Escribir cada línea del producto
+                                for j, linea in enumerate(lineas):
+                                    pdf.set_xy(x_inicial + cw[0], y_inicial + (j * altura_fila/num_lineas))
+                                    pdf.cell(cw[1], altura_fila/num_lineas, linea, 'LR', 0, 'L')
+                                
+                                # Dibujar borde derecho
+                                pdf.set_xy(x_inicial + cw[0] + cw[1], y_inicial)
+                                pdf.cell(0, altura_fila, "", 'R', 0, 'L')
+                                pdf.set_xy(x_inicial + cw[0] + cw[1], y_inicial)
                                 
                                 # Columna 3: Cantidad
-                                pdf.cell(12, altura_fila, str(r['Cant']), 1, 0, 'C')
+                                pdf.cell(cw[2], altura_fila, str(r['Cant']), 1, 0, 'C')
                                 
                                 # Columna 4: Precio Catálogo
-                                pdf.cell(20, altura_fila, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                                pdf.cell(cw[3], altura_fila, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
                                 
                                 # Columna 5: Total Catálogo
                                 pdf.set_fill_color(225, 245, 254)
-                                pdf.cell(20, altura_fila, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                                pdf.cell(cw[4], altura_fila, f"${fmt(v_tc)}", 1, 0, 'R', True)
                                 
                                 # Columna 6: Precio Lista
                                 pdf.set_fill_color(255, 255, 255)
-                                pdf.cell(20, altura_fila, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                                pdf.cell(cw[5], altura_fila, f"${fmt(r['List_U'])}", 1, 0, 'R')
                                 
                                 # Columna 7: Total Lista
                                 pdf.set_fill_color(255, 243, 224)
-                                pdf.cell(20, altura_fila, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                                pdf.cell(cw[6], altura_fila, f"${fmt(v_tl)}", 1, 0, 'R', True)
                                 
                                 # Columna 8: Ganancia
                                 if gan_fila >= 0:
@@ -469,7 +462,7 @@ for idx, tab in enumerate(tabs):
                                 else:
                                     pdf.set_fill_color(255, 230, 230)
                                 
-                                pdf.cell(20, altura_fila, f"${fmt(gan_fila)}", 1, 1, 'R', True)
+                                pdf.cell(cw[7], altura_fila, f"${fmt(gan_fila)}", 1, 1, 'R', True)
                                 
                                 # Restaurar color de fondo
                                 pdf.set_fill_color(255, 255, 255)
@@ -479,39 +472,47 @@ for idx, tab in enumerate(tabs):
                             pdf.set_font("Arial", 'B', 9)
                             
                             # Calcular ancho para "TOTALES"
-                            ancho_totales = 12 + ancho_producto + 12  # Pág + Producto + Cant
+                            ancho_totales = cw[0] + cw[1] + cw[2]
                             
                             pdf.cell(ancho_totales, 7, "TOTALES:", 1, 0, 'R', True)
-                            pdf.cell(20, 7, "", 1, 0, 'C', True)  # Celda vacía (P.Cat)
-                            pdf.cell(20, 7, f"${fmt(total_tc)}", 1, 0, 'R', True)
-                            pdf.cell(20, 7, "", 1, 0, 'C', True)  # Celda vacía (P.List)
-                            pdf.cell(20, 7, f"${fmt(total_tl)}", 1, 0, 'R', True)
+                            pdf.cell(cw[3], 7, "", 1, 0, 'C', True)
+                            pdf.cell(cw[4], 7, f"${fmt(total_tc)}", 1, 0, 'R', True)
+                            pdf.cell(cw[5], 7, "", 1, 0, 'C', True)
+                            pdf.cell(cw[6], 7, f"${fmt(total_tl)}", 1, 0, 'R', True)
                             
                             if total_gan >= 0:
                                 pdf.set_fill_color(232, 245, 233)
                             else:
                                 pdf.set_fill_color(255, 230, 230)
                             
-                            pdf.cell(20, 7, f"${fmt(total_gan)}", 1, 1, 'R', True)
+                            pdf.cell(cw[7], 7, f"${fmt(total_gan)}", 1, 1, 'R', True)
                             
-                            # Información de pago
-                            pdf.ln(5)
+                            # INFORMACIÓN DE PAGO MEJORADA
+                            pdf.ln(8)
                             
+                            # Posicionar logo de pago
+                            logo_pago_y = pdf.get_y()
                             if logo_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, logo_pago, 8, pdf.get_y(), 12)
+                                    agregar_imagen_segura(pdf, logo_pago, 10, logo_pago_y, 20)
                                 except:
                                     pass
                             
-                            pdf.set_font("Arial", 'B', 10)
+                            # Información de pago (con espacio para el logo)
+                            pdf.set_xy(35, logo_pago_y + 5)
+                            pdf.set_font("Arial", 'B', 12)
                             if num_pago:
-                                pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                                pdf.cell(0, 6, f"Pagar a: {num_pago}")
                             else:
-                                pdf.cell(0, 5, "Información de pago no configurada")
+                                pdf.cell(0, 6, "Información de pago no configurada")
                             
+                            # QR más grande y bien posicionado
                             if qr_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, qr_pago, 150, pdf.get_y() - 2, 25)
+                                    qr_x = 150  # Posición X fija
+                                    qr_y = logo_pago_y - 5  # Un poco más arriba
+                                    qr_size = 35  # Tamaño más grande para mejor legibilidad
+                                    agregar_imagen_segura(pdf, qr_pago, qr_x, qr_y, qr_size)
                                 except:
                                     pass
                             
@@ -559,7 +560,7 @@ for idx, tab in enumerate(tabs):
                                     
                                     # Dividir producto
                                     prod_text = str(r['Prod'])
-                                    lineas = dividir_texto(prod_text, anchos[1] - 2, pdf, 7)
+                                    lineas = dividir_texto_en_lineas(prod_text, anchos[1] - 2, pdf, 7)
                                     altura = max(5, len(lineas) * 3)
                                     
                                     # Página
@@ -591,6 +592,26 @@ for idx, tab in enumerate(tabs):
                                 pdf.cell(150, 7, "TOTALES:", 1, 0, 'R', True)
                                 pdf.cell(25, 7, f"${fmt(s_tc)}", 1, 0, 'R', True)
                                 pdf.cell(25, 7, f"${fmt(s_tg)}", 1, 1, 'R', True)
+                                
+                                # Información de pago
+                                pdf.ln(5)
+                                
+                                if logo_pago:
+                                    try:
+                                        agregar_imagen_segura(pdf, logo_pago, 10, pdf.get_y(), 15)
+                                    except:
+                                        pass
+                                
+                                pdf.set_xy(30, pdf.get_y())
+                                pdf.set_font("Arial", 'B', 10)
+                                if num_pago:
+                                    pdf.cell(0, 5, f"Pagar a: {num_pago}")
+                                
+                                if qr_pago:
+                                    try:
+                                        agregar_imagen_segura(pdf, qr_pago, 150, pdf.get_y() - 5, 30)
+                                    except:
+                                        pass
                                 
                                 res_pdf_simple = pdf.output(dest='S').encode('latin-1')
                                 
