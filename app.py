@@ -80,6 +80,31 @@ def limpiar_texto_para_pdf(texto):
         texto = texto.replace(char, replacement)
     return texto
 
+def dividir_texto(texto, max_ancho, pdf, font_size=8):
+    """Divide un texto en múltiples líneas para que quepa en el ancho especificado"""
+    pdf.set_font("Arial", '', font_size)
+    palabras = texto.split()
+    lineas = []
+    linea_actual = ""
+    
+    for palabra in palabras:
+        prueba = f"{linea_actual} {palabra}".strip()
+        if pdf.get_string_width(prueba) <= max_ancho:
+            linea_actual = prueba
+        else:
+            if linea_actual:
+                lineas.append(linea_actual)
+            linea_actual = palabra
+    
+    if linea_actual:
+        lineas.append(linea_actual)
+    
+    return lineas
+
+def calcular_altura_texto(lineas, altura_linea=4):
+    """Calcula la altura total necesaria para un texto con múltiples líneas"""
+    return len(lineas) * altura_linea
+
 def importar_datos_pdf(file):
     try:
         reader = PdfReader(file)
@@ -295,7 +320,7 @@ for idx, tab in enumerate(tabs):
                 st.session_state.datos[key_f] = [{"Pag": "", "Prod": "", "Cant": 1, "Cat_U": 0, "List_U": 0}]
                 st.rerun()
         
-        # GENERACIÓN DE PDF EN ORIENTACIÓN HORIZONTAL
+        # GENERACIÓN DE PDF CON CELDAS QUE SE AJUSTAN AL CONTENIDO
         if st.session_state.datos[key_f]:
             filas_validas = [f for f in st.session_state.datos[key_f] if f.get('Prod', '').strip() != ""]
             
@@ -305,11 +330,11 @@ for idx, tab in enumerate(tabs):
                 if st.button("🚀 GENERAR PDF", key=f"pdf_{fid}_{idx}", type="primary", use_container_width=True):
                     with st.spinner("Generando PDF..."):
                         try:
-                            # PDF EN ORIENTACIÓN HORIZONTAL (LANDSCAPE)
-                            pdf = FPDF(orientation='L', unit='mm', format='A4')
+                            # PDF en formato vertical con celdas ajustables
+                            pdf = FPDF(orientation='P', unit='mm', format='A4')
                             pdf.add_page()
                             
-                            # Márgenes pequeños para aprovechar espacio
+                            # Márgenes pequeños
                             pdf.set_left_margin(8)
                             pdf.set_right_margin(8)
                             pdf.set_top_margin(10)
@@ -321,31 +346,43 @@ for idx, tab in enumerate(tabs):
                                 except:
                                     pass
                             
-                            # Título centrado
-                            pdf.set_font("Arial", 'B', 16)
+                            # Título
+                            pdf.set_font("Arial", 'B', 14)
                             pdf.set_xy(0, 10)
                             pdf.cell(0, 8, txt=nombre_rev.upper(), ln=True, align='C')
                             
                             # Información del cliente
-                            pdf.set_font("Arial", '', 12)
-                            cliente_text = f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}"
+                            pdf.set_font("Arial", '', 10)
+                            cliente_text = f"CLIENTE: {nom_cli.upper()} | FECHA: {fec_p.strftime('%d-%m-%Y')}"
                             pdf.cell(0, 6, cliente_text, ln=True, align='C')
                             pdf.ln(5)
                             
-                            # ANCHOS OPTIMIZADOS PARA FORMATO HORIZONTAL
-                            # Ancho total disponible en horizontal: 297mm - 16mm márgenes = 281mm
-                            cw = [12, 120, 12, 20, 20, 20, 20, 20]  # Total: 244mm (sobra espacio)
+                            # ANCHOS FIJOS PARA COLUMNAS (excepto producto)
+                            # Ancho total: 210mm - 16mm márgenes = 194mm
+                            # Distribución: Pág(12) + Producto(AUTO) + Cant(12) + P.Cat(20) + T.Cat(20) + P.List(20) + T.List(20) + Gan(20) = 124mm + Producto
+                            # Producto tomará el espacio restante: 194mm - 124mm = 70mm mínimo
+                            
+                            # Definir anchos fijos
+                            ancho_fijos = [12, 12, 20, 20, 20, 20, 20]  # Pág, Cant, P.Cat, T.Cat, P.List, T.List, Gan
+                            ancho_total_fijos = sum(ancho_fijos)  # 124mm
+                            ancho_disponible = 194  # 210 - 16 márgenes
+                            ancho_producto = ancho_disponible - ancho_total_fijos  # Lo que sobra para producto
                             
                             # Encabezados
                             pdf.set_fill_color(240, 240, 240)
-                            pdf.set_font("Arial", 'B', 9)
+                            pdf.set_font("Arial", 'B', 8)
                             
-                            headers = ["Pág", "Producto", "Cant", "P.Cat", "T.Cat", "P.List", "T.List", "Gan."]
-                            for i, header in enumerate(headers):
-                                pdf.cell(cw[i], 8, header, 1, 0, 'C', True)
-                            pdf.ln()
+                            # Primera fila de encabezados
+                            pdf.cell(12, 6, "Pág", 1, 0, 'C', True)
+                            pdf.cell(ancho_producto, 6, "Producto", 1, 0, 'C', True)
+                            pdf.cell(12, 6, "Cant", 1, 0, 'C', True)
+                            pdf.cell(20, 6, "P.Cat", 1, 0, 'C', True)
+                            pdf.cell(20, 6, "T.Cat", 1, 0, 'C', True)
+                            pdf.cell(20, 6, "P.List", 1, 0, 'C', True)
+                            pdf.cell(20, 6, "T.List", 1, 0, 'C', True)
+                            pdf.cell(20, 6, "Gan.", 1, 1, 'C', True)
                             
-                            pdf.set_font("Arial", '', 8)
+                            pdf.set_font("Arial", '', 7)
                             
                             # Variables para totales
                             total_tc = 0
@@ -366,93 +403,115 @@ for idx, tab in enumerate(tabs):
                                 # Preparar texto del producto
                                 prod_text = limpiar_texto_para_pdf(str(r['Prod']))
                                 
+                                # DIVIDIR EL TEXTO DEL PRODUCTO EN MÚLTIPLES LÍNEAS
+                                lineas_producto = dividir_texto(prod_text, ancho_producto - 2, pdf, 7)
+                                num_lineas = len(lineas_producto)
+                                altura_fila = max(6, num_lineas * 3.5)  # Altura mínima 6mm
+                                
                                 # Verificar si necesitamos nueva página
-                                if pdf.get_y() > 180:  # En horizontal, el límite es diferente
-                                    pdf.add_page(orientation='L')
+                                if pdf.get_y() + altura_fila > 270:
+                                    pdf.add_page()
                                     # Reimprimir encabezados
                                     pdf.set_fill_color(240, 240, 240)
-                                    pdf.set_font("Arial", 'B', 9)
-                                    for i, header in enumerate(headers):
-                                        pdf.cell(cw[i], 8, header, 1, 0, 'C', True)
-                                    pdf.ln()
-                                    pdf.set_font("Arial", '', 8)
+                                    pdf.set_font("Arial", 'B', 8)
+                                    pdf.cell(12, 6, "Pág", 1, 0, 'C', True)
+                                    pdf.cell(ancho_producto, 6, "Producto", 1, 0, 'C', True)
+                                    pdf.cell(12, 6, "Cant", 1, 0, 'C', True)
+                                    pdf.cell(20, 6, "P.Cat", 1, 0, 'C', True)
+                                    pdf.cell(20, 6, "T.Cat", 1, 0, 'C', True)
+                                    pdf.cell(20, 6, "P.List", 1, 0, 'C', True)
+                                    pdf.cell(20, 6, "T.List", 1, 0, 'C', True)
+                                    pdf.cell(20, 6, "Gan.", 1, 1, 'C', True)
+                                    pdf.set_font("Arial", '', 7)
                                 
-                                # Página
-                                pdf.cell(cw[0], 6, str(r['Pag']), 1, 0, 'C')
+                                # Guardar posición X inicial
+                                x_inicial = pdf.get_x()
+                                y_inicial = pdf.get_y()
                                 
-                                # Producto (truncado si es necesario)
-                                if pdf.get_string_width(prod_text) > cw[1] - 2:
-                                    # Truncar texto
-                                    while pdf.get_string_width(prod_text + "...") > cw[1] - 2 and len(prod_text) > 3:
-                                        prod_text = prod_text[:-1]
-                                    prod_text = prod_text + "..."
-                                pdf.cell(cw[1], 6, prod_text, 1, 0, 'L')
+                                # Columna 1: Página
+                                pdf.cell(12, altura_fila, str(r['Pag']), 1, 0, 'C')
                                 
-                                # Cantidad
-                                pdf.cell(cw[2], 6, str(r['Cant']), 1, 0, 'C')
+                                # Columna 2: Producto (MÚLTIPLES LÍNEAS)
+                                # Escribir cada línea del producto
+                                for i, linea in enumerate(lineas_producto):
+                                    if i == 0:
+                                        # Primera línea
+                                        pdf.cell(ancho_producto, altura_fila/num_lineas, linea, 'LR', 0, 'L')
+                                    else:
+                                        # Líneas adicionales
+                                        pdf.set_xy(x_inicial + 12, y_inicial + (i * altura_fila/num_lineas))
+                                        pdf.cell(ancho_producto, altura_fila/num_lineas, linea, 'LR', 0, 'L')
                                 
-                                # Precio Catálogo
-                                pdf.cell(cw[3], 6, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                                # Volver a la posición correcta para continuar
+                                pdf.set_xy(x_inicial + 12 + ancho_producto, y_inicial)
                                 
-                                # Total Catálogo
+                                # Columna 3: Cantidad
+                                pdf.cell(12, altura_fila, str(r['Cant']), 1, 0, 'C')
+                                
+                                # Columna 4: Precio Catálogo
+                                pdf.cell(20, altura_fila, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
+                                
+                                # Columna 5: Total Catálogo
                                 pdf.set_fill_color(225, 245, 254)
-                                pdf.cell(cw[4], 6, f"${fmt(v_tc)}", 1, 0, 'R', True)
+                                pdf.cell(20, altura_fila, f"${fmt(v_tc)}", 1, 0, 'R', True)
                                 
-                                # Precio Lista
+                                # Columna 6: Precio Lista
                                 pdf.set_fill_color(255, 255, 255)
-                                pdf.cell(cw[5], 6, f"${fmt(r['List_U'])}", 1, 0, 'R')
+                                pdf.cell(20, altura_fila, f"${fmt(r['List_U'])}", 1, 0, 'R')
                                 
-                                # Total Lista
+                                # Columna 7: Total Lista
                                 pdf.set_fill_color(255, 243, 224)
-                                pdf.cell(cw[6], 6, f"${fmt(v_tl)}", 1, 0, 'R', True)
+                                pdf.cell(20, altura_fila, f"${fmt(v_tl)}", 1, 0, 'R', True)
                                 
-                                # Ganancia
+                                # Columna 8: Ganancia
                                 if gan_fila >= 0:
                                     pdf.set_fill_color(232, 245, 233)
                                 else:
                                     pdf.set_fill_color(255, 230, 230)
                                 
-                                pdf.cell(cw[7], 6, f"${fmt(gan_fila)}", 1, 1, 'R', True)
+                                pdf.cell(20, altura_fila, f"${fmt(gan_fila)}", 1, 1, 'R', True)
+                                
+                                # Restaurar color de fondo
                                 pdf.set_fill_color(255, 255, 255)
                             
                             # Línea de totales
                             pdf.set_fill_color(230, 230, 230)
-                            pdf.set_font("Arial", 'B', 10)
+                            pdf.set_font("Arial", 'B', 9)
                             
-                            # Calcular ancho para alineación
-                            total_cell_width = cw[0] + cw[1] + cw[2] + cw[3]
+                            # Calcular ancho para "TOTALES"
+                            ancho_totales = 12 + ancho_producto + 12  # Pág + Producto + Cant
                             
-                            pdf.cell(total_cell_width, 8, "TOTALES FINALES", 1, 0, 'R', True)
-                            pdf.cell(cw[4], 8, f"${fmt(total_tc)}", 1, 0, 'R', True)
-                            pdf.cell(cw[5], 8, "", 1, 0, 'C', True)
-                            pdf.cell(cw[6], 8, f"${fmt(total_tl)}", 1, 0, 'R', True)
+                            pdf.cell(ancho_totales, 7, "TOTALES:", 1, 0, 'R', True)
+                            pdf.cell(20, 7, "", 1, 0, 'C', True)  # Celda vacía (P.Cat)
+                            pdf.cell(20, 7, f"${fmt(total_tc)}", 1, 0, 'R', True)
+                            pdf.cell(20, 7, "", 1, 0, 'C', True)  # Celda vacía (P.List)
+                            pdf.cell(20, 7, f"${fmt(total_tl)}", 1, 0, 'R', True)
                             
                             if total_gan >= 0:
                                 pdf.set_fill_color(232, 245, 233)
                             else:
                                 pdf.set_fill_color(255, 230, 230)
                             
-                            pdf.cell(cw[7], 8, f"${fmt(total_gan)}", 1, 1, 'R', True)
+                            pdf.cell(20, 7, f"${fmt(total_gan)}", 1, 1, 'R', True)
                             
                             # Información de pago
                             pdf.ln(5)
                             
                             if logo_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, logo_pago, 8, pdf.get_y(), 15)
+                                    agregar_imagen_segura(pdf, logo_pago, 8, pdf.get_y(), 12)
                                 except:
                                     pass
                             
-                            pdf.set_xy(30, pdf.get_y())
-                            pdf.set_font("Arial", 'B', 12)
+                            pdf.set_font("Arial", 'B', 10)
                             if num_pago:
-                                pdf.cell(0, 6, f"Pagar a: {num_pago}")
+                                pdf.cell(0, 5, f"Pagar a: {num_pago}")
                             else:
-                                pdf.cell(0, 6, "Información de pago no configurada")
+                                pdf.cell(0, 5, "Información de pago no configurada")
                             
                             if qr_pago:
                                 try:
-                                    agregar_imagen_segura(pdf, qr_pago, 220, pdf.get_y() - 3, 25)
+                                    agregar_imagen_segura(pdf, qr_pago, 150, pdf.get_y() - 2, 25)
                                 except:
                                     pass
                             
@@ -471,9 +530,9 @@ for idx, tab in enumerate(tabs):
                         except Exception as e:
                             st.error(f"Error al generar el PDF: {str(e)}")
                             
-                            # Método alternativo SIMPLIFICADO
+                            # Método alternativo SIMPLE
                             try:
-                                pdf = FPDF(orientation='L', unit='mm', format='A4')
+                                pdf = FPDF(orientation='P', unit='mm', format='A4')
                                 pdf.add_page()
                                 
                                 pdf.set_font("Arial", 'B', 14)
@@ -484,11 +543,11 @@ for idx, tab in enumerate(tabs):
                                 
                                 # Tabla simplificada
                                 pdf.set_font("Arial", 'B', 8)
-                                headers_simple = ["Pág", "Producto", "Cant", "P.Cat", "T.Cat", "P.List", "T.List", "Gan."]
-                                widths_simple = [10, 130, 10, 18, 18, 18, 18, 18]
+                                encabezados = ["Pág", "Producto", "Cant", "Total", "Gan."]
+                                anchos = [15, 120, 15, 25, 25]
                                 
-                                for i, header in enumerate(headers_simple):
-                                    pdf.cell(widths_simple[i], 6, header, 1, 0, 'C', True)
+                                for i, header in enumerate(encabezados):
+                                    pdf.cell(anchos[i], 6, header, 1, 0, 'C', True)
                                 pdf.ln()
                                 
                                 pdf.set_font("Arial", '', 7)
@@ -498,27 +557,40 @@ for idx, tab in enumerate(tabs):
                                     v_tl = r['Cant'] * r['List_U']
                                     gan_fila = v_tc - v_tl
                                     
-                                    # Producto truncado
+                                    # Dividir producto
                                     prod_text = str(r['Prod'])
-                                    if len(prod_text) > 80:
-                                        prod_text = prod_text[:77] + "..."
+                                    lineas = dividir_texto(prod_text, anchos[1] - 2, pdf, 7)
+                                    altura = max(5, len(lineas) * 3)
                                     
-                                    pdf.cell(widths_simple[0], 5, str(r['Pag']), 1, 0, 'C')
-                                    pdf.cell(widths_simple[1], 5, prod_text, 1, 0, 'L')
-                                    pdf.cell(widths_simple[2], 5, str(r['Cant']), 1, 0, 'C')
-                                    pdf.cell(widths_simple[3], 5, f"${fmt(r['Cat_U'])}", 1, 0, 'R')
-                                    pdf.cell(widths_simple[4], 5, f"${fmt(v_tc)}", 1, 0, 'R')
-                                    pdf.cell(widths_simple[5], 5, f"${fmt(r['List_U'])}", 1, 0, 'R')
-                                    pdf.cell(widths_simple[6], 5, f"${fmt(v_tl)}", 1, 0, 'R')
-                                    pdf.cell(widths_simple[7], 5, f"${fmt(gan_fila)}", 1, 1, 'R')
+                                    # Página
+                                    pdf.cell(anchos[0], altura, str(r['Pag']), 1, 0, 'C')
+                                    
+                                    # Producto (múltiples líneas)
+                                    x = pdf.get_x()
+                                    y = pdf.get_y()
+                                    for j, linea in enumerate(lineas):
+                                        if j == 0:
+                                            pdf.cell(anchos[1], altura/len(lineas), linea, 'LR', 0, 'L')
+                                        else:
+                                            pdf.set_xy(x, y + (j * altura/len(lineas)))
+                                            pdf.cell(anchos[1], altura/len(lineas), linea, 'LR', 0, 'L')
+                                    
+                                    pdf.set_xy(x + anchos[1], y)
+                                    
+                                    # Cantidad
+                                    pdf.cell(anchos[2], altura, str(r['Cant']), 1, 0, 'C')
+                                    
+                                    # Total
+                                    pdf.cell(anchos[3], altura, f"${fmt(v_tc)}", 1, 0, 'R')
+                                    
+                                    # Ganancia
+                                    pdf.cell(anchos[4], altura, f"${fmt(gan_fila)}", 1, 1, 'R')
                                 
-                                # Totales
+                                # Totales simples
                                 pdf.set_font("Arial", 'B', 9)
-                                pdf.cell(158, 7, "TOTALES:", 1, 0, 'R', True)
-                                pdf.cell(18, 7, f"${fmt(s_tc)}", 1, 0, 'R', True)
-                                pdf.cell(18, 7, "", 1, 0, 'C', True)
-                                pdf.cell(18, 7, f"${fmt(s_tl)}", 1, 0, 'R', True)
-                                pdf.cell(18, 7, f"${fmt(s_tg)}", 1, 1, 'R', True)
+                                pdf.cell(150, 7, "TOTALES:", 1, 0, 'R', True)
+                                pdf.cell(25, 7, f"${fmt(s_tc)}", 1, 0, 'R', True)
+                                pdf.cell(25, 7, f"${fmt(s_tg)}", 1, 1, 'R', True)
                                 
                                 res_pdf_simple = pdf.output(dest='S').encode('latin-1')
                                 
