@@ -329,7 +329,7 @@ for idx, tab in enumerate(tabs):
                             
                             # Información del cliente - FUENTE LEGIBLE
                             pdf.set_font("Arial", '', 11)
-                            cliente_text = f"CLIENTE: {nom_cli.upper()} | FECHA: {fec_p.strftime('%d-%m-%Y')}"
+                            cliente_text = f"CLIENTE: {nom_cli.upper()} | FECHA DE PAGO: {fec_p.strftime('%d-%m-%Y')}"
                             pdf.cell(0, 7, cliente_text, ln=True, align='C')
                             pdf.ln(8)
                             
@@ -634,3 +634,4 @@ for idx, tab in enumerate(tabs):
                 st.warning("Agrega al menos un producto con nombre para generar el PDF.")
         else:
             st.warning("Agrega al menos un producto con nombre para generar el PDF.")
+
