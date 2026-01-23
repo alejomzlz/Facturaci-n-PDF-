@@ -560,7 +560,6 @@ for idx, tab in enumerate(tabs):
                                 st.error(f"Error crítico: {str(e2)}")
             else:
                 st.warning("Agrega al menos un producto con nombre para generar el PDF.")
-                                st.error(f"Error crítico: {str(e2)}")
-            else:
-                st.warning("Agrega al menos un producto con nombre para generar el PDF.")
+        else:
+            st.warning("Agrega al menos un producto con nombre para generar el PDF.")
 
